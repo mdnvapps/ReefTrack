@@ -1398,9 +1398,15 @@ function switchTank(id){
   localStorage.setItem('rt_current_tank', id);
   updateSidebarTankName();
   renderTankList();
-  renderSettings();
   loadAll().then(()=>{
-    renderDashboard();
+    // Re-render whatever page is currently active
+    const active = document.querySelector('.panel.active');
+    if(active){
+      const page = active.id.replace('panel-','');
+      goto(page);
+    } else {
+      renderDashboard();
+    }
     toast('🐠 Switched to '+getCurrentTank()?.name);
   });
 }
