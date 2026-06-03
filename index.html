@@ -806,7 +806,9 @@ function setSyncStatus(s){const dot=$('sync-dot'),lbl=$('sync-label');if(s==='on
 // ═══════════════════════════════════════
 async function dbLoad(table){
   try{
-    const url=SURL+'/rest/v1/'+table+'?select=*&order=created_at.desc&apikey='+encodeURIComponent(SKEY);
+    const tid = currentTankId||'default';
+    const filter = `&tank_id=eq.${encodeURIComponent(tid)}`;
+    const url=SURL+'/rest/v1/'+table+'?select=*&order=created_at.desc'+filter+'&apikey='+encodeURIComponent(SKEY);
     const r=await fetch(url,{headers:{'apikey':SKEY,'Authorization':'Bearer '+SKEY}});
     if(!r.ok)throw new Error(await r.text());
     return await r.json()||[];
@@ -815,10 +817,12 @@ async function dbLoad(table){
 async function dbInsert(table,row){
   try{
     setSyncStatus('syncing');
+    // Add tank_id to every insert
+    const rowWithTank = {...row, tank_id: currentTankId||'default'};
     const r=await fetch(SURL+'/rest/v1/'+table+'?apikey='+SKEY,{
       method:'POST',
       headers:{'apikey':SKEY,'Authorization':'Bearer '+SKEY,'Content-Type':'application/json','Prefer':'return=representation'},
-      body:JSON.stringify(row)
+      body:JSON.stringify(rowWithTank)
     });
     const d=await r.json();
     if(!r.ok)throw d;
