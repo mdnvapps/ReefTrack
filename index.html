@@ -808,8 +808,10 @@ function setSyncStatus(s){const dot=$('sync-dot'),lbl=$('sync-label');if(s==='on
 async function dbLoad(table){
   try{
     const tid = currentTankId||'default';
-    const filter = `&tank_id=eq.${encodeURIComponent(tid)}`;
-    const url=SURL+'/rest/v1/'+table+'?select=*&order=date.desc'+filter+'&limit=2000&apikey='+encodeURIComponent(SKEY);
+    const filter = '&tank_id=eq.'+encodeURIComponent(tid);
+    const orderCol = (table==='rt_waterchanges'||table==='rt_doses'||table==='rt_par'||table==='rt_notes'||table==='rt_photos') ? 'created_at' : 'date';
+    const url=SURL+'/rest/v1/'+table+'?select=*&order='+orderCol+'.desc'+filter+'&limit=2000&apikey='+encodeURIComponent(SKEY);
+    console.log('Loading',table,'for tank',tid,'url:',url.slice(0,120));
     const r=await fetch(url,{headers:{'apikey':SKEY,'Authorization':'Bearer '+SKEY}});
     if(!r.ok)throw new Error(await r.text());
     return await r.json()||[];
@@ -883,7 +885,8 @@ async function loadAll(){
     parReadings=par;inhabitants=inh;equipment=eq;notes=n;photos=ph;
     targets={};tg.forEach(r=>{if(r.param_key)targets[r.param_key]=r});
     setSyncStatus('online');
-    if(logs.length===0){const lt2=$('loading-text');if(lt2)lt2.textContent='Setting up...';await seedData();}
+    // Seeding disabled - data already in Supabase
+    // if(logs.length===0){await seedData();}
     return true;
   }catch(e){
     console.error('loadAll error:',e);
