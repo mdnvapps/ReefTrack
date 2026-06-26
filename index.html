@@ -1380,7 +1380,46 @@ function checkAllReminders(){
 let tanks = JSON.parse(localStorage.getItem('rt_tanks')||'[]');
 let currentTankId = localStorage.getItem('rt_current_tank')||null;
 
-function saveTanksData(){localStorage.setItem('rt_tanks',JSON.stringify(tanks));}
+async function saveTanksData(){
+  // Save to localStorage as backup
+  localStorage.setItem('rt_tanks',JSON.stringify(tanks));
+}
+
+async function saveTankToCloud(tank){
+  try{
+    const r = await fetch(SURL+'/rest/v1/rt_tanks?apikey='+SKEY, {
+      method: 'POST',
+      headers: {'apikey':SKEY,'Authorization':'Bearer '+SKEY,'Content-Type':'application/json','Prefer':'resolution=merge-duplicates'},
+      body: JSON.stringify(tank)
+    });
+    if(!r.ok) console.error('Save tank error:', await r.text());
+  } catch(e){ console.error('Save tank error:', e); }
+}
+
+async function deleteTankFromCloud(id){
+  try{
+    await fetch(SURL+'/rest/v1/rt_tanks?id=eq.'+id+'&apikey='+SKEY, {
+      method: 'DELETE',
+      headers: {'apikey':SKEY,'Authorization':'Bearer '+SKEY}
+    });
+  } catch(e){ console.error('Delete tank error:', e); }
+}
+
+async function loadTanksFromCloud(){
+  try{
+    const r = await fetch(SURL+'/rest/v1/rt_tanks?select=*&order=created_at.asc&apikey='+SKEY, {
+      headers: {'apikey':SKEY,'Authorization':'Bearer '+SKEY}
+    });
+    if(!r.ok) throw new Error(await r.text());
+    const data = await r.json();
+    if(data && data.length > 0){
+      tanks = data;
+      localStorage.setItem('rt_tanks', JSON.stringify(tanks));
+      return true;
+    }
+  } catch(e){ console.error('Load tanks error:', e); }
+  return false;
+}
 
 function getCurrentTank(){
   if(!tanks.length) return null;
@@ -1420,10 +1459,12 @@ function updateSidebarTankName(){
   }
 }
 
-function initTankSwitcher(){
-  // If no tanks exist yet create default from settings
-  const s = getSettings();
-  if(!tanks.length){
+async function initTankSwitcher(){
+  // Try loading from cloud first
+  const loaded = await loadTanksFromCloud();
+  if(!loaded && !tanks.length){
+    // Fall back to creating default tank
+    const s = getSettings();
     const defaultTank = {
       id:'default',
       name: s.tank_name||'My Aquarium',
@@ -1436,8 +1477,13 @@ function initTankSwitcher(){
     tanks.push(defaultTank);
     currentTankId = 'default';
     saveTanksData();
+    saveTankToCloud(defaultTank);
     localStorage.setItem('rt_current_tank','default');
   }
+  // Restore last selected tank
+  const saved = localStorage.getItem('rt_current_tank');
+  if(saved && tanks.find(t=>t.id===saved)) currentTankId = saved;
+  else if(tanks.length) currentTankId = tanks[0].id;
   updateSidebarTankName();
 }
 
@@ -1455,6 +1501,7 @@ function saveTank(){
       tank.started = document.getElementById('tank-started-input')?.value||'';
       tank.notes = document.getElementById('tank-notes-input')?.value||'';
       saveTanksData();
+      saveTankToCloud(tank);
       window._editingTankId = null;
       closeModal('tank-modal');
       toast('✓ Tank updated!');
@@ -1475,6 +1522,7 @@ function saveTank(){
   };
   tanks.push(tank);
   saveTanksData();
+  saveTankToCloud(tank);
   if(!currentTankId){currentTankId=tank.id;localStorage.setItem('rt_current_tank',tank.id);}
   closeModal('tank-modal');
   toast('🐠 '+name+' added!');
@@ -1515,6 +1563,7 @@ function deleteTank(id){
     // Already showing confirm - do the delete
     tanks = tanks.filter(t=>t.id!==id);
     saveTanksData();
+    deleteTankFromCloud(id);
     if(currentTankId===id){currentTankId=tanks[0].id;localStorage.setItem('rt_current_tank',tanks[0].id);}
     renderSettings();
     updateSidebarTankName();
