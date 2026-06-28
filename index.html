@@ -1819,16 +1819,28 @@ const TEST_GUIDES = {
 
 let currentTestBrand = 'hanna';
 
+let currentTestParam = 0;
+
 function selectTestBrand(brand){
   currentTestBrand = brand;
-  // Update pill styles
-  ['hanna','api','salifert'].forEach(b=>{
-    const el = document.getElementById('tb-'+b);
-    if(el){
-      el.style.background = b===brand ? 'var(--cyan)' : '';
-      el.style.color = b===brand ? '#000' : '';
-    }
-  });
+  currentTestParam = 0;
+  // Update brand dropdown
+  const bd = document.getElementById('test-brand-select');
+  if(bd) bd.value = brand;
+  // Update param dropdown
+  const pd = document.getElementById('test-param-select');
+  const guide = TEST_GUIDES[brand];
+  if(pd && guide){
+    pd.innerHTML = guide.tests.map((t,i)=>`<option value="${i}">${t.name}</option>`).join('');
+    pd.value = '0';
+  }
+  selectTestParam(0);
+}
+
+function selectTestParam(idx){
+  currentTestParam = parseInt(idx)||0;
+  const pd = document.getElementById('test-param-select');
+  if(pd) pd.value = currentTestParam;
   renderTesting();
 }
 
@@ -1837,37 +1849,774 @@ function renderTesting(){
   if(!guide) return;
   const el = document.getElementById('test-guide-content');
   if(!el) return;
+  const test = guide.tests[currentTestParam];
+  if(!test) return;
 
-  // Update pill active state
-  selectTestBrand(currentTestBrand);
+  // handled by selectTestParam
+}
 
-  el.innerHTML = guide.tests.map(test => `
-    <div class="card" style="margin-bottom:16px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-        <div>
-          <div style="font-weight:700;font-size:1rem">${test.icon} ${test.name}</div>
-          <div style="font-size:0.75rem;color:var(--muted)">${test.model}</div>
-        </div>
-        <div style="background:rgba(0,229,255,0.1);color:var(--cyan);padding:4px 12px;border-radius:20px;font-size:0.75rem;font-weight:600">
-          Target: ${test.target}
-        </div>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">
-        ${test.steps.map((step,i)=>`
-          <div style="display:flex;gap:10px;align-items:flex-start">
-            <div style="width:22px;height:22px;border-radius:50%;background:var(--s3);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:0.7rem;font-weight:700;color:var(--cyan);flex-shrink:0">${i+1}</div>
-            <div style="font-size:0.85rem;line-height:1.5;color:var(--text)">${step}</div>
+// ═══════════════════════════════════════
+// SETTINGS
+// ═══════════════════════════════════════
+const DEFAULT_SETTINGS = {
+  ai_auto: true,
+  ai_dashboard: true,
+  notif_params: true,
+  notif_reminders: true,
+  tank_name: 'My Aquarium',
+  tank_vol: 180,
+  sump_vol: 40,
+  tank_age: '3 years 10 months'
+};
+
+function getSettings(){
+  try{ return {...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem('rt_settings')||'{}')}; }
+  catch{ return DEFAULT_SETTINGS; }
+}
+
+function saveSetting(key, value){
+  const s = getSettings();
+  s[key] = value;
+  localStorage.setItem('rt_settings', JSON.stringify(s));
+  applySettings();
+}
+
+function toggleSetting(key){
+  const s = getSettings();
+  s[key] = !s[key];
+  localStorage.setItem('rt_settings', JSON.stringify(s));
+  applySettings();
+  initTankSwitcher();
+  renderSettings();
+}
+
+function saveTankSettings(){
+  const s = getSettings();
+  s.tank_name = document.getElementById('setting-tank-name')?.value || 'My Aquarium';
+  s.tank_vol = parseFloat(document.getElementById('setting-tank-vol')?.value) || 180;
+  s.sump_vol = parseFloat(document.getElementById('setting-sump-vol')?.value) || 40;
+  s.tank_age = document.getElementById('setting-tank-age')?.value || '';
+  localStorage.setItem('rt_settings', JSON.stringify(s));
+  toast('✓ Tank settings saved');
+  // Update sidebar footer
+  const footer = document.querySelector('.sidebar-footer');
+  if(footer) footer.childNodes[0].textContent = s.tank_vol + ' Gallon Reef · ' + s.tank_age;
+}
+
+function applySettings(){
+  const s = getSettings();
+  // Show/hide dashboard AI widget
+  const dashAIWidget = document.getElementById('dash-ai-widget');
+  if(dashAIWidget) dashAIWidget.style.display = s.ai_dashboard ? 'block' : 'none';
+}
+
+function renderSettings(){
+  renderTankList();
+  const s = getSettings();
+  const toggleKeys = ['ai_auto','ai_dashboard','notif_params','notif_reminders'];
+  toggleKeys.forEach(key => {
+    const id = 'toggle-'+key.replace(/_/g,'-');
+    const thumbId = 'thumb-'+key.replace(/_/g,'-');
+    const el = document.getElementById(id);
+    const thumb = document.getElementById(thumbId);
+    if(el){
+      el.style.background = s[key] ? 'var(--cyan)' : 'var(--s3)';
+    }
+    if(thumb){
+      thumb.style.left = s[key] ? '26px' : '3px';
+    }
+  });
+  if(document.getElementById('setting-tank-name')) document.getElementById('setting-tank-name').value = s.tank_name||'My Aquarium';
+  if(document.getElementById('setting-tank-vol')) document.getElementById('setting-tank-vol').value = s.tank_vol||180;
+  if(document.getElementById('setting-sump-vol')) document.getElementById('setting-sump-vol').value = s.sump_vol||40;
+  if(document.getElementById('setting-tank-age')) document.getElementById('setting-tank-age').value = s.tank_age||'3 years 10 months';
+}
+
+// ═══════════════════════════════════════
+// DASHBOARD AI WIDGET
+// ═══════════════════════════════════════
+let dashAIHistory = [];
+let dashAIOpen = true;
+
+function toggleDashAI(){
+  const body = document.getElementById('dash-ai-body');
+  const icon = document.getElementById('dash-ai-toggle-icon');
+  dashAIOpen = !dashAIOpen;
+  if(body) body.style.display = dashAIOpen ? 'block' : 'none';
+  if(icon) icon.textContent = dashAIOpen ? '▼' : '▶';
+}
+
+function renderDashAIMessage(role, text){
+  const isUser = role === 'user';
+  const chat = document.getElementById('dash-ai-chat');
+  if(!chat) return;
+  const div = document.createElement('div');
+  div.style.cssText = 'display:flex;gap:8px;align-items:flex-start;margin-bottom:4px;' + (isUser ? 'flex-direction:row-reverse' : '');
+  const iconEl = document.createElement('div');
+  iconEl.style.cssText = 'width:28px;height:28px;border-radius:50%;background:var(--s3);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:0.85rem';
+  iconEl.textContent = isUser ? '🐠' : '🤖';
+  const msgEl = document.createElement('div');
+  msgEl.style.cssText = 'border-radius:10px;padding:10px 13px;font-size:0.82rem;line-height:1.6;max-width:82%;white-space:pre-wrap';
+  msgEl.style.background = isUser ? 'var(--cyan)' : 'var(--s2)';
+  msgEl.style.color = isUser ? '#000' : 'var(--text)';
+  msgEl.style.border = '1px solid ' + (isUser ? 'var(--cyan)' : 'var(--border)');
+  msgEl.textContent = text;
+  div.appendChild(iconEl);
+  div.appendChild(msgEl);
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+async function sendDashAI(){
+  const input = document.getElementById('dash-ai-input');
+  const msg = input?.value?.trim();
+  if(!msg) return;
+  input.value = '';
+  await sendDashAIMsg(msg);
+}
+
+async function sendDashAIMsg(message){
+  renderDashAIMessage('user', message);
+  dashAIHistory.push({role:'user', content: message});
+  const thinking = document.getElementById('dash-ai-thinking');
+  if(thinking) thinking.style.display = 'block';
+  try{
+    const controller = new AbortController();
+    const timeout = setTimeout(()=>controller.abort(), 30000);
+    const response = await fetch('https://reeftrack-kasa.mdnvapps.workers.dev/claude', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-5',
+        max_tokens: 1024,
+        system: getTankContext(),
+        messages: dashAIHistory
+      }),
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+    const data = await response.json();
+    const reply = data.content?.[0]?.text || 'Error: '+JSON.stringify(data).slice(0,100);
+    if(thinking) thinking.style.display = 'none';
+    dashAIHistory.push({role:'assistant', content: reply});
+    renderDashAIMessage('assistant', reply);
+  } catch(e){
+    if(thinking) thinking.style.display = 'none';
+    renderDashAIMessage('assistant', 'Error: '+e.message);
+  }
+}
+
+async function autoAnalyzeParams(savedParams){
+  const s = getSettings();
+  if(!s.ai_auto) return;
+  if(!savedParams || savedParams.length === 0) return;
+
+  // Show the dashboard AI widget if hidden
+  const dashAIWidget = document.getElementById('dash-ai-widget');
+  if(dashAIWidget) dashAIWidget.style.display = 'block';
+
+  // Open it if collapsed
+  const body = document.getElementById('dash-ai-body');
+  const icon = document.getElementById('dash-ai-toggle-icon');
+  if(body) body.style.display = 'block';
+  if(icon) icon.textContent = '▼';
+  dashAIOpen = true;
+
+  // Build analysis prompt
+  const paramList = savedParams.map(p => {
+    const param = pByKey(p.param);
+    const T = getTargets();
+    const t = T[p.param];
+    const st = p.value > t.high ? 'HIGH ⚠️' : p.value < t.low ? 'LOW ⚠️' : 'OK ✅';
+    return `${param?.name}: ${p.value} ${p.unit} — ${st}`;
+  }).join('\n');
+
+  const msg = `I just logged these readings:\n${paramList}\n\nGive me quick actionable advice. Keep it brief and specific to my tank.`;
+  await sendDashAIMsg(msg);
+}
+
+// ═══════════════════════════════════════
+// AI ASSISTANT
+// ═══════════════════════════════════════
+const CLAUDE_KEY = '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';
+let aiChatHistory = [];
+
+function getTankContext(){
+  const T = getTargets();
+  const recentLogs = [...logs].sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,200);
+  const paramSummary = PARAMS.map(p=>{
+    const pLogs = recentLogs.filter(l=>l.param===p.key).slice(0,5);
+    if(!pLogs.length) return null;
+    const latest = pLogs[0];
+    const t = T[p.key];
+    const st = latest.value > t.high ? 'HIGH ⚠️' : latest.value < t.low ? 'LOW ⚠️' : 'OK ✅';
+    const history = pLogs.map(l=>`${l.value} ${l.unit} (${timeAgo(l.date)})`).join(', ');
+    return `${p.name}: CURRENT=${latest.value} ${latest.unit} (${st}) | Last 5: ${history} | Target ${t.target}, range ${t.low}-${t.high}`;
+  }).filter(Boolean).join('\n');
+
+  const recentWC = [...waterChanges].sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,3)
+    .map(w=>`${fmtD(w.date)} - ${w.volume}gal ${w.salt_brand||''}`).join(', ');
+
+  const recentDoses = [...doses].sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,5)
+    .map(d=>`${d.product} ${d.amount} (${timeAgo(d.date)})`).join(', ');
+
+  const inhList = inhabitants.map(i=>`${i.name} (${i.type})`).join(', ');
+
+  return `You are an expert reef aquarium assistant with deep knowledge of marine biology, coral husbandry, and water chemistry. You have access to this user's complete tank data.
+
+TANK INFO:
+- Size: 180 gallon display + 40 gallon sump (220 total)
+- Age: 3 years 10 months
+
+CURRENT PARAMETERS:
+${paramSummary || 'No recent readings'}
+
+RECENT WATER CHANGES:
+${recentWC || 'None logged'}
+
+RECENT DOSING:
+${recentDoses || 'None logged'}
+
+INHABITANTS:
+${inhList || 'None logged'}
+
+Give specific, actionable advice based on this actual tank data. Be conversational but precise. When parameters are out of range, explain why and give exact dosing/action recommendations. Always consider the full picture of their tank when giving advice.`;
+}
+
+async function sendAIMessage(){
+  const input = document.getElementById('ai-input');
+  const msg = input.value.trim();
+  if(!msg) return;
+  input.value = '';
+  await askAI(msg);
+}
+
+async function askAI(message){
+  const chat = document.getElementById('ai-chat');
+  if(!chat) return;
+
+  // Add user message
+  aiChatHistory.push({role:'user', content: message});
+  renderAIChat();
+
+  // Show typing indicator
+  const typingId = 'typing-' + Date.now();
+  chat.innerHTML += `<div id="${typingId}" style="display:flex;gap:10px;align-items:flex-start">
+    <div style="width:32px;height:32px;border-radius:50%;background:var(--s3);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:1rem">🤖</div>
+    <div style="background:var(--s2);border:1px solid var(--border);border-radius:12px;padding:12px 14px;font-size:0.85rem;color:var(--muted)">Thinking...</div>
+  </div>`;
+  chat.scrollTop = chat.scrollHeight;
+
+  try {
+    const systemPrompt = getTankContext();
+    const response = await fetch('https://reeftrack-kasa.mdnvapps.workers.dev/claude', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-5',
+        max_tokens: 1024,
+        system: systemPrompt,
+        messages: aiChatHistory
+      })
+    });
+
+    const data = await response.json();
+    const reply = data.content?.[0]?.text || 'Sorry, I could not get a response.';
+
+    // Remove typing indicator
+    const typingEl = document.getElementById(typingId);
+    if(typingEl) typingEl.remove();
+
+    aiChatHistory.push({role:'assistant', content: reply});
+    renderAIChat();
+
+  } catch(e) {
+    const typingEl = document.getElementById(typingId);
+    if(typingEl) typingEl.remove();
+    console.error('AI error:', e);
+    aiChatHistory.push({role:'assistant', content: 'Sorry, I had trouble connecting. Please try again.'});
+    renderAIChat();
+  }
+}
+
+function renderAIChat(){
+  const chat = document.getElementById('ai-chat');
+  if(!chat) return;
+  chat.innerHTML = aiChatHistory.map(msg => {
+    const isUser = msg.role === 'user';
+    return `<div style="display:flex;gap:10px;align-items:flex-start;${isUser?'flex-direction:row-reverse':''}">
+      <div style="width:32px;height:32px;border-radius:50%;background:var(--s3);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:1rem">${isUser?'🐠':'🤖'}</div>
+      <div style="background:${isUser?'var(--cyan)':'var(--s2)'};color:${isUser?'#000':'var(--text)'};border:1px solid ${isUser?'var(--cyan)':'var(--border)'};border-radius:12px;padding:12px 14px;font-size:0.85rem;line-height:1.6;max-width:80%;white-space:pre-wrap">${msg.content}</div>
+    </div>`;
+  }).join('');
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function clearAIChat(){
+  aiChatHistory = [];
+  const chat = document.getElementById('ai-chat');
+  if(chat) chat.innerHTML = '';
+}
+
+function initAIPanel(){
+  if(aiChatHistory.length === 0){
+    // Send a welcome context message
+    const chat = document.getElementById('ai-chat');
+    if(chat) chat.innerHTML = `<div style="display:flex;gap:10px;align-items:flex-start">
+      <div style="width:32px;height:32px;border-radius:50%;background:var(--s3);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:1rem">🤖</div>
+      <div style="background:var(--s2);border:1px solid var(--border);border-radius:12px;padding:12px 14px;font-size:0.85rem;line-height:1.6;max-width:80%">Hey! I'm your Reef Assistant. I have access to all your tank data — parameters, water changes, dosing history, and inhabitants. Ask me anything about your 180 gallon reef! 🐠🪸</div>
+    </div>`;
+  }
+}
+
+// AI Inhabitant Lookup
+async function aiLookupInhabitant(){
+  const search = document.getElementById('inh-search')?.value?.trim();
+  if(!search || search.length < 2) return;
+
+  const resultBox = document.getElementById('inh-ai-result');
+  if(resultBox){
+    resultBox.style.display = 'block';
+    resultBox.innerHTML = '🤖 Looking up ' + search + '...';
+  }
+
+  try {
+    const response = await fetch('https://reeftrack-kasa.mdnvapps.workers.dev/claude', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-5',
+        max_tokens: 500,
+        messages: [{
+          role: 'user',
+          content: `Give me info about "${search}" for a reef aquarium. Respond ONLY with a JSON object, no other text:
+{
+  "commonName": "exact common name",
+  "scientificName": "scientific name",
+  "type": "fish|coral|invert|other",
+  "emoji": "one relevant emoji",
+  "reefSafe": "yes|no|with caution",
+  "maxSize": "size in inches",
+  "temperament": "peaceful|semi-aggressive|aggressive",
+  "diet": "brief diet description",
+  "careLevel": "easy|moderate|expert",
+  "compatibility": "brief compatibility notes for a reef tank",
+  "idealTemp": "temp range F",
+  "notes": "2-3 sentences of key care notes"
+}`
+        }]
+      })
+    });
+
+    const data = await response.json();
+    const text = data.content?.[0]?.text || '{}';
+    
+    try {
+      // Extract JSON more robustly
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if(!jsonMatch) throw new Error('No JSON found');
+      const info = JSON.parse(jsonMatch[0]);
+
+      // Auto-fill the form
+      if(info.commonName && document.getElementById('inh-name')) document.getElementById('inh-name').value = info.commonName;
+      if(info.scientificName && document.getElementById('inh-sci')) document.getElementById('inh-sci').value = info.scientificName;
+      if(info.emoji && document.getElementById('inh-emoji')) document.getElementById('inh-emoji').value = info.emoji;
+      if(info.type && document.getElementById('inh-type')) document.getElementById('inh-type').value = info.type;
+      if(info.notes && document.getElementById('inh-notes')) document.getElementById('inh-notes').value = info.notes;
+
+      // Show summary
+      if(resultBox){
+        const reefColor = info.reefSafe==='yes'?'var(--teal)':info.reefSafe==='no'?'var(--red)':'var(--amber)';
+        resultBox.innerHTML = `
+          <div style="font-weight:700;color:var(--text);font-size:0.9rem;margin-bottom:6px">${info.emoji} ${info.commonName} <span style="font-style:italic;font-weight:400;color:var(--muted)">${info.scientificName}</span></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+            <span style="background:rgba(0,229,255,0.1);color:var(--cyan);padding:2px 8px;border-radius:4px;font-size:0.72rem">${info.careLevel} care</span>
+            <span style="background:rgba(0,0,0,0.2);color:${reefColor};padding:2px 8px;border-radius:4px;font-size:0.72rem">Reef safe: ${info.reefSafe}</span>
+            <span style="background:rgba(0,0,0,0.2);color:var(--muted2);padding:2px 8px;border-radius:4px;font-size:0.72rem">${info.temperament}</span>
+            <span style="background:rgba(0,0,0,0.2);color:var(--muted2);padding:2px 8px;border-radius:4px;font-size:0.72rem">Max ${info.maxSize}</span>
           </div>
-        `).join('')}
+          <div style="color:var(--muted2)">${info.notes}</div>
+          <div style="color:var(--teal);font-size:0.75rem;margin-top:6px">✓ Form auto-filled — review and save!</div>
+        `;
+      }
+    } catch(e){
+      if(resultBox) resultBox.innerHTML = '⚠️ Could not parse response. Try a more specific name.';
+    }
+
+  } catch(e){
+    if(resultBox) resultBox.innerHTML = '⚠️ AI lookup failed. Check your connection.';
+  }
+}
+
+// ═══════════════════════════════════════
+// KASA HS300 LOCAL CONTROL
+// ═══════════════════════════════════════
+const KASA_IP = '192.168.4.97';
+const KASA_PORT = 9999;
+const KASA_WORKER = 'https://reeftrack-kasa.mdnvapps.workers.dev';
+const KASA_PLUGS = [
+  {index:0, name:'ReefMat',     icon:'🧹'},
+  {index:1, name:'Skimmer',     icon:'💨'},
+  {index:2, name:'ATO',         icon:'💧'},
+  {index:3, name:'Fuge Light',  icon:'💡'},
+  {index:4, name:'Doser',       icon:'💊'},
+  {index:5, name:'Return Pump', icon:'🔄'},
+];
+
+let kasaStates = {};
+let kasaRefreshInterval = null;
+
+// Kasa uses a simple XOR encryption on port 9999
+function kasaEncrypt(str){
+  let key=171, buf=Buffer ? Buffer.alloc(str.length+4) : null;
+  // Use fetch to a proxy since direct TCP not possible in browser
+  // We'll use the Kasa local HTTP API instead (newer firmware supports it)
+  return str;
+}
+
+async function kasaCommand(action, plug=null){
+  try{
+    let url = `${KASA_WORKER}?action=${action}`;
+    if(plug !== null) url += `&plug=${plug}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(()=>controller.abort(), 5000);
+    const resp = await fetch(url);
+    clearTimeout(timeout);
+    if(resp.ok) return await resp.json();
+    throw new Error('Worker error');
+  } catch(e){
+    console.log('Kasa worker:', e.message);
+    return null;
+  }
+}
+
+async function getKasaStatus(){
+  const cmd = {
+    "method": "get_device_info",
+    "params": null
+  };
+  const result = await kasaCommand(cmd);
+  return result;
+}
+
+async function refreshKasa(){
+  const statusEl = document.getElementById('kasa-status-text');
+  const warningEl = document.getElementById('kasa-warning');
+  if(statusEl) statusEl.textContent = '🔄 Connecting to HS300...';
+  if(warningEl) warningEl.style.display = 'none';
+
+  const data = await kasaCommand('status');
+  
+  if(!data || data.error){
+    if(statusEl) statusEl.textContent = '❌ Could not connect to HS300';
+    if(warningEl) warningEl.style.display = 'block';
+    renderKasaPlugs(null);
+    return;
+  }
+
+  try{
+    const children = data.system.get_sysinfo.children;
+    children.forEach((child, i) => {
+      kasaStates[i] = child.state === 1;
+    });
+    localStorage.setItem('kasa_states', JSON.stringify(kasaStates));
+    if(statusEl) statusEl.textContent = '✅ Connected — ' + new Date().toLocaleTimeString();
+  } catch(e){
+    if(statusEl) statusEl.textContent = '⚠️ Connected but could not read states';
+  }
+  renderKasaPlugs(null);
+}
+
+function renderKasaPlugs(states){
+  const grid = document.getElementById('kasa-plugs');
+  if(!grid) return;
+  
+  grid.innerHTML = KASA_PLUGS.map(plug => {
+    const state = kasaStates[plug.index];
+    const isOn = state === true;
+    const isOff = state === false;
+    const unknown = state === undefined;
+    
+    const cardColor = isOn ? 'border-color:var(--teal)' : isOff ? 'border-color:var(--border)' : 'border-color:var(--border)';
+    const dotColor = isOn ? 'var(--teal)' : isOff ? 'var(--muted)' : 'var(--muted)';
+    const statusText = isOn ? 'ON' : isOff ? 'OFF' : 'Unknown';
+    const statusColor = isOn ? 'var(--teal)' : 'var(--muted)';
+    
+    return `<div class="filter-card" style="${cardColor};transition:all 0.3s">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <span style="font-size:1.4rem">${plug.icon}</span>
+        <span style="width:10px;height:10px;border-radius:50%;background:${dotColor};display:inline-block;${isOn?'box-shadow:0 0 8px '+dotColor:''}"></span>
       </div>
-      <div style="background:rgba(255,200,0,0.08);border:1px solid rgba(255,200,0,0.2);border-radius:8px;padding:10px 12px;font-size:0.78rem;color:var(--amber);line-height:1.5">
-        💡 ${test.tips}
+      <div class="filter-name">${plug.name}</div>
+      <div style="font-size:0.75rem;color:${statusColor};font-weight:700;margin-bottom:12px">${statusText}</div>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-sm ${isOn?'btn-teal':'btn-ghost'}" onclick="toggleKasa(${plug.index}, true)" style="flex:1">ON</button>
+        <button class="btn btn-sm ${isOff?'btn-danger':'btn-ghost'}" onclick="toggleKasa(${plug.index}, false)" style="flex:1">OFF</button>
       </div>
-      <button class="btn btn-sm btn-primary" style="margin-top:12px" onclick="goto('log');toast('Log your ${test.name} reading!')">
-        + Log ${test.name} Reading
-      </button>
-    </div>
-  `).join('');
+      ${state!==undefined?`<div style="font-size:0.68rem;color:var(--muted);margin-top:6px;text-align:center">Last set manually</div>`:''}
+    </div>`;
+  }).join('');
+}
+
+function toggleKasa(plugIndex, turnOn){
+  // Store state locally since we can't reach TCP directly from browser
+  kasaStates[plugIndex] = turnOn;
+  localStorage.setItem('kasa_states', JSON.stringify(kasaStates));
+  
+  const plug = KASA_PLUGS[plugIndex];
+  toast(`${plug.icon} ${plug.name} marked ${turnOn?'ON':'OFF'}`);
+  
+  // Control via Cloudflare Worker
+  kasaCommand(turnOn ? 'on' : 'off', plugIndex).then(result => {
+    if(result && !result.error){
+      toast(`✅ ${plug.name} turned ${turnOn?'ON':'OFF'}!`);
+      // Refresh status after toggle
+      setTimeout(refreshKasa, 1000);
+    } else {
+      toast(`⚠️ Could not reach HS300 — state saved locally`);
+    }
+  });
+  
+  renderKasaPlugs(null);
+}
+
+function showKasaInstructions(name, turnOn){
+  // Already stored in app, just inform user
+  console.log('Kasa toggle stored locally');
+}
+
+function renderKasaDashboard(){
+  // Show mini kasa status on dashboard
+  const states = JSON.parse(localStorage.getItem('kasa_states')||'{}');
+  kasaStates = states;
+}
+
+// ═══════════════════════════════════════
+// REMINDERS
+// ═══════════════════════════════════════
+let reminders = JSON.parse(localStorage.getItem('rt_reminders')||'[]');
+
+const REM_ICONS = {test:'🧪',water:'💧',dose:'💊',rodi:'🔬',equipment:'⚙️',other:'📋'};
+
+function saveReminderData(){localStorage.setItem('rt_reminders',JSON.stringify(reminders));}
+
+function saveReminder(){
+  const name = document.getElementById('rem-name').value.trim();
+  if(!name){toast('Enter a reminder name');return;}
+  const freqVal = parseInt(document.getElementById('rem-freq').value)||7;
+  const freqUnit = document.getElementById('rem-unit').value;
+  const freqDays = freqUnit==='weeks'?freqVal*7:freqUnit==='months'?freqVal*30:freqVal;
+  const rem = {
+    id: Date.now().toString(),
+    name,
+    cat: document.getElementById('rem-cat').value,
+    freqDays,
+    freqVal,
+    freqUnit,
+    last: document.getElementById('rem-last').value||todayLocal(),
+    notify: parseInt(document.getElementById('rem-notify').value)||0,
+    notes: document.getElementById('rem-notes').value||'',
+    created: todayLocal()
+  };
+  reminders.push(rem);
+  saveReminderData();
+  closeModal('reminder-modal');
+  toast('🔔 Reminder saved!');
+  renderReminders();
+  // Clear form
+  document.getElementById('rem-name').value='';
+  document.getElementById('rem-last').value='';
+  document.getElementById('rem-notes').value='';
+}
+
+function getDueDays(rem){
+  if(!rem.last) return 0;
+  const last = new Date(rem.last+'T12:00:00');
+  const due = new Date(last.getTime() + rem.freqDays*86400000);
+  const diff = Math.ceil((due - new Date()) / 86400000);
+  return diff;
+}
+
+function markDone(id){
+  const rem = reminders.find(r=>r.id===id);
+  if(!rem) return;
+  rem.last = todayLocal();
+  saveReminderData();
+  toast(`✓ ${rem.name} marked done!`);
+  renderReminders();
+}
+
+function delReminder(id){
+  reminders = reminders.filter(r=>r.id!==id);
+  saveReminderData();
+  renderReminders();
+  toast('Deleted');
+}
+
+function renderReminders(){
+  const body = document.getElementById('reminders-body');
+  const empty = document.getElementById('reminders-empty');
+  const dueBox = document.getElementById('reminders-due');
+
+  if(!reminders.length){
+    body.innerHTML='';
+    empty.style.display='block';
+    dueBox.innerHTML='';
+    return;
+  }
+  empty.style.display='none';
+
+  // Sort by due date
+  const sorted = [...reminders].sort((a,b)=>getDueDays(a)-getDueDays(b));
+
+  // Due now banner
+  const overdue = sorted.filter(r=>getDueDays(r)<=0);
+  if(overdue.length){
+    dueBox.innerHTML = `<div class="alert-banner show" style="margin-bottom:16px">
+      <div class="alert-banner-title">🔔 ${overdue.length} Reminder${overdue.length>1?'s':''} Due!</div>
+      <div class="alert-banner-items">${overdue.map(r=>`• ${REM_ICONS[r.cat]} ${r.name}`).join('<br>')}</div>
+    </div>`;
+  } else {
+    dueBox.innerHTML='';
+  }
+
+  body.innerHTML = sorted.map(rem=>{
+    const days = getDueDays(rem);
+    const icon = REM_ICONS[rem.cat]||'📋';
+    const statusColor = days<0?'var(--red)':days===0?'var(--amber)':days<=3?'var(--amber)':'var(--teal)';
+    const statusText = days<0?`${Math.abs(days)}d overdue`:days===0?'Due today':days===1?'Due tomorrow':`Due in ${days}d`;
+    const freqText = rem.freqVal+' '+rem.freqUnit;
+    return `<tr>
+      <td><span style="margin-right:6px">${icon}</span><strong>${rem.name}</strong>${rem.notes?`<div style="font-size:0.72rem;color:var(--muted)">${rem.notes}</div>`:''}</td>
+      <td style="color:var(--muted);font-size:0.82rem">Every ${freqText}</td>
+      <td style="color:var(--muted);font-size:0.82rem">${rem.last?fmtD(rem.last+'T12:00:00'):'Never'}</td>
+      <td style="font-size:0.82rem">${rem.last?fmtD(new Date(new Date(rem.last+'T12:00:00').getTime()+rem.freqDays*86400000).toISOString()):'—'}</td>
+      <td><span style="color:${statusColor};font-weight:700;font-size:0.82rem">${statusText}</span></td>
+      <td style="display:flex;gap:4px;align-items:center">
+        <button class="btn btn-sm btn-teal" onclick="markDone('${rem.id}')">✓ Done</button>
+        <button class="del-btn" onclick="delReminder('${rem.id}')">✕</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function checkReminderNotifications(){
+  reminders.forEach(rem=>{
+    const days = getDueDays(rem);
+    const icon = REM_ICONS[rem.cat]||'📋';
+    if(days === 0){
+      showLocalNotification(`${icon} Due Today`, `${rem.name} is due today!`);
+    } else if(days < 0){
+      showLocalNotification(`${icon} Overdue!`, `${rem.name} is ${Math.abs(days)} day${Math.abs(days)>1?'s':''} overdue!`);
+    } else if(days <= rem.notify){
+      showLocalNotification(`${icon} Coming Up`, `${rem.name} is due in ${days} day${days>1?'s':''}!`);
+    }
+  });
+}
+
+async function init(){
+  initModalDefaults();
+  setSyncStatus('syncing');
+  // Force hide loading screen after 5 seconds NO MATTER WHAT
+  const forceHide = setTimeout(()=>{
+    const ls = document.getElementById('loading-screen');
+    if(ls) ls.classList.add('hidden');
+    buildLogForm();
+    renderDashboard();
+  }, 5000);
+  // Also try to load data with 4 second timeout
+  const timeoutPromise = new Promise(resolve => setTimeout(() => resolve(false), 4000));
+  const ok = await Promise.race([loadAll(), timeoutPromise]);
+  clearTimeout(forceHide);
+  // Always hide loading screen and launch the app
+  const ls = document.getElementById('loading-screen');
+  if(ls) ls.classList.add('hidden');
+  if(!ok){
+    setSyncStatus('offline');
+    toast('Could not connect to cloud — check your connection','error');
+  }
+  buildLogForm();
+  renderDashboard();
+  setupReminders();
+  checkReminderNotifications();
+  applySettings();
+  initTankSwitcher();
+  renderSettings();
+  kasaStates = JSON.parse(localStorage.getItem('kasa_states')||'{}');
+  // Request notification permission after 2 seconds
+  setTimeout(()=>{
+    if('Notification' in window && Notification.permission === 'default'){
+      Notification.requestPermission().then(p=>{
+        if(p==='granted'){
+          toast('🔔 Notifications enabled!');
+        }
+      });
+    }
+    // Also try OneSignal
+    if(window.OneSignalDeferred){
+      OneSignalDeferred.push(async function(OneSignal){
+        try{
+          const enabled = await OneSignal.Notifications.requestPermission();
+          if(enabled) toast('🔔 Push notifications enabled!');
+        }catch(e){console.log('OS:',e);}
+      });
+    }
+  }, 2000);
+}
+
+function gotoMobile(page){
+  closeMoreMenu();
+  goto(page);
+  // Update bottom nav active state
+  document.querySelectorAll(".bottom-nav-item").forEach(b=>b.classList.remove("active"));
+  const bn=document.getElementById("bn-"+page);
+  if(bn)bn.classList.add("active");
+  document.getElementById("bn-more").classList.remove("open");
+}
+function toggleMoreMenu(){
+  const m=document.getElementById("more-menu");
+  const btn=document.getElementById("bn-more");
+  m.classList.toggle("open");
+  btn.classList.toggle("open");
+}
+function closeMoreMenu(){
+  document.getElementById("more-menu").classList.remove("open");
+  document.getElementById("bn-more").classList.remove("open");
+}
+window.addEventListener("click",function(e){
+  const m=document.getElementById("more-menu");
+  const btn=document.getElementById("bn-more");
+  if(m&&btn&&m.classList.contains("open")){if(!m.contains(e.target)&&!btn.contains(e.target))closeMoreMenu();}
+});
+
+init();
+
+// Fix scroll vs tap on mobile - only fire click if not scrolling
+(function(){
+  let startY = 0;
+  let startX = 0;
+  document.querySelectorAll(".bottom-nav-item,.bottom-nav-more,.more-item").forEach(el=>{
+    el.addEventListener("touchstart",function(e){
+      startY = e.touches[0].clientY;
+      startX = e.touches[0].clientX;
+    },{passive:true});
+    el.addEventListener("touchend",function(e){
+      const dy = Math.abs(e.changedTouches[0].clientY - startY);
+      const dx = Math.abs(e.changedTouches[0].clientX - startX);
+      if(dy < 10 && dx < 10){
+        e.preventDefault();
+        this.click();
+      }
+    },{passive:false});
+  });
+})();
+</script>
+</body>
+</html>  // handled by selectTestParam
 }
 
 // ═══════════════════════════════════════
