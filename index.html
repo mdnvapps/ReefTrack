@@ -334,7 +334,7 @@ tr:last-child td{border-bottom:none}
     </div>
 
     <div id="panel-dosing" class="panel">
-      <div class="section-head"><span class="section-title">Dosing Log</span><button class="btn btn-primary btn-sm" onclick="openModal('dose-modal')">+ Log Dose</button></div>
+      <div class="section-head"><span class="section-title">Dosing Log</span><button class="btn btn-primary btn-sm" onclick="openDoseModal()">+ Log Dose</button></div>
       <div class="card"><div id="dose-list" class="empty">No dosing logged yet.</div></div>
     </div>
 
@@ -565,7 +565,39 @@ tr:last-child td{border-bottom:none}
 
 <div class="modal-bg" id="rodi-modal"><div class="modal"><div class="modal-title">🔬 Add RODI Filter Stage</div><button class="modal-close" onclick="closeModal('rodi-modal')">✕</button><div class="form-grid"><div class="fg"><label>Filter Name</label><input type="text" id="rodi-name" placeholder="Sediment, DI Resin..."></div><div class="fg"><label>Stage</label><select id="rodi-stage"><option>Stage 1 – Sediment</option><option>Stage 2 – Carbon Block</option><option>Stage 3 – RO Membrane</option><option>Stage 4 – DI Resin</option><option>Stage 5 – Post Carbon</option><option>Custom</option></select></div><div class="fg"><label>Lifespan (gallons)</label><input type="number" id="rodi-life" placeholder="500"></div><div class="fg"><label>Last Changed</label><input type="date" id="rodi-changed"></div><div class="fg"><label>Gallons Used</label><input type="number" id="rodi-used" value="0"></div></div><div class="form-actions"><button class="btn btn-primary" onclick="saveRODIFilter()">Save</button><button class="btn btn-ghost" onclick="closeModal('rodi-modal')">Cancel</button></div></div></div>
 
-<div class="modal-bg" id="dose-modal"><div class="modal"><div class="modal-title">💊 Log Dosing</div><button class="modal-close" onclick="closeModal('dose-modal')">✕</button><div class="form-grid"><div class="fg"><label>Product</label><input type="text" id="dose-prod" placeholder="Microbacter7, 2-Part A..."></div><div class="fg"><label>Amount</label><input type="text" id="dose-amt" placeholder="5 caps, 10ml..."></div><div class="fg"><label>Method</label><select id="dose-method"><option>Manual – Direct</option><option>Manual – Sump</option><option>Auto Doser</option><option>Kalkwasser</option><option>Two-Part</option><option>Other</option></select></div><div class="fg"><label>Date & Time</label><input type="datetime-local" id="dose-dt"></div><div class="fg"><label>Target Parameter</label><select id="dose-target"><option value="">General / Bacterial</option><option>Alkalinity</option><option>Calcium</option><option>Magnesium</option><option>Phosphate</option><option>Nitrate</option><option>pH</option><option>Other</option></select></div></div><div class="fg" style="margin-top:12px"><label>Notes</label><input type="text" id="dose-notes"></div><div class="form-actions"><button class="btn btn-primary" onclick="saveDose()">Save</button><button class="btn btn-ghost" onclick="closeModal('dose-modal')">Cancel</button></div></div></div>
+<div class="modal-bg" id="dose-modal"><div class="modal"><div class="modal-title">💊 Log Dosing</div><button class="modal-close" onclick="closeModal('dose-modal')">✕</button>
+<input type="hidden" id="dose-edit-id">
+<div class="form-grid">
+  <div class="fg"><label>Product</label>
+    <input type="text" id="dose-prod" placeholder="Type or select..." list="dose-prod-list" autocomplete="off">
+    <datalist id="dose-prod-list"></datalist>
+  </div>
+  <div class="fg"><label>Amount</label>
+    <div style="display:flex;gap:6px">
+      <input type="number" id="dose-amt-num" placeholder="5" style="flex:1;min-width:0">
+      <select id="dose-amt-unit" style="width:100px">
+        <option>ml</option>
+        <option>drops</option>
+        <option>caps</option>
+        <option>tsp</option>
+        <option>tbsp</option>
+        <option>g</option>
+        <option>oz</option>
+        <option>cups</option>
+        <option>tablets</option>
+        <option>squirts</option>
+      </select>
+    </div>
+  </div>
+  <div class="fg"><label>Method</label><select id="dose-method"><option>Manual – Direct</option><option>Manual – Sump</option><option>Auto Doser</option><option>Kalkwasser</option><option>Two-Part</option><option>Other</option></select></div>
+  <div class="fg"><label>Date & Time</label><input type="datetime-local" id="dose-dt"></div>
+  <div class="fg"><label>Target Parameter</label><select id="dose-target"><option value="">General / Bacterial</option><option>Alkalinity</option><option>Calcium</option><option>Magnesium</option><option>Phosphate</option><option>Nitrate</option><option>pH</option><option>Other</option></select></div>
+</div>
+<div class="fg" style="margin-top:12px"><label>Notes</label><input type="text" id="dose-notes"></div>
+<div class="form-actions">
+  <button class="btn btn-primary" onclick="saveDose()">Save</button>
+  <button class="btn btn-ghost" onclick="closeModal('dose-modal')">Cancel</button>
+</div></div></div>
 
 <div class="modal-bg" id="par-modal"><div class="modal"><div class="modal-title">☀️ Log PAR Reading</div><button class="modal-close" onclick="closeModal('par-modal')">✕</button><div class="form-grid"><div class="fg"><label>Location</label><select id="par-loc"><option>Top Left</option><option>Top Center</option><option>Top Right</option><option>Mid Left</option><option>Mid Center</option><option>Mid Right</option><option>Bottom Left</option><option>Bottom Center</option><option>Bottom Right</option><option>Sandbed</option><option>Custom</option></select></div><div class="fg"><label>Custom Location</label><input type="text" id="par-custom"></div><div class="fg"><label>Depth (inches)</label><input type="number" id="par-depth"></div><div class="fg"><label>PAR Value (µmol)</label><input type="number" id="par-val"></div><div class="fg"><label>Light Intensity (%)</label><input type="number" id="par-light-pct" max="100"></div><div class="fg"><label>Date</label><input type="date" id="par-date"></div></div><div class="fg" style="margin-top:12px"><label>Notes</label><input type="text" id="par-notes"></div><div class="form-actions"><button class="btn btn-primary" onclick="savePAR()">Save</button><button class="btn btn-ghost" onclick="closeModal('par-modal')">Cancel</button></div></div></div>
 
@@ -1059,7 +1091,7 @@ async function saveDose(){
   const r=await dbInsert('rt_doses',row);if(r){doses.unshift(r);closeModal('dose-modal');toast('💊 Dose logged');renderDosing();renderDashboard();}
 }
 function renderDosing(){
-  const list=$('dose-list');const sorted=[...doses].sort((a,b)=>new Date(b.date||b.created_at)-new Date(a.date||a.created_at)).filter((d,i,arr)=>i===0||d.product!==arr[i-1].product||Math.abs(new Date(d.date)-new Date(arr[i-1].date))>60000);
+  const list=$('dose-list');const sorted=[...doses].sort((a,b)=>new Date(b.date||b.created_at)-new Date(a.date||a.created_at));
   if(!sorted.length){list.innerHTML='<div class="empty">No dosing logged yet.</div>';return;}
   list.innerHTML=sorted.map(d=>`<div class="dose-item"><div style="display:flex;gap:10px;align-items:center"><div class="dose-icon">💊</div><div><div style="font-weight:600;font-size:0.9rem">${d.product}</div><div style="font-size:0.75rem;color:var(--muted)">${d.method}${d.target_param?' · '+d.target_param:''} ${d.notes?'· '+d.notes:''}</div></div></div><div style="text-align:right"><div style="font-family:var(--font-head);font-weight:700;color:var(--purple)">${d.amount}</div><div style="font-size:0.7rem;color:var(--muted)">${timeAgo(d.date||d.created_at)}</div><button class="del-btn" onclick="delDose('${d.id}')">✕</button></div></div>`).join('');
 }
