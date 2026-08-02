@@ -526,6 +526,27 @@ tr:last-child td{border-bottom:none}
       </div>
     </div>
 
+    <div id="panel-testing" class="panel">
+      <div class="section-head"><span class="section-title">🧪 Testing Guide</span></div>
+      <div class="card" style="margin-bottom:16px">
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          <div style="flex:1;min-width:150px">
+            <label style="display:block;font-size:0.78rem;color:var(--muted);margin-bottom:6px">Test Brand</label>
+            <select id="test-brand-select" onchange="selectTestBrand(this.value)" style="width:100%;background:var(--s2);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:8px;font-size:0.85rem">
+              <option value="hanna">Hanna Instruments</option>
+              <option value="api">API Test Kits</option>
+              <option value="salifert">Salifert Test Kits</option>
+            </select>
+          </div>
+          <div style="flex:1;min-width:150px">
+            <label style="display:block;font-size:0.78rem;color:var(--muted);margin-bottom:6px">Parameter</label>
+            <select id="test-param-select" onchange="selectTestParam(this.value)" style="width:100%;background:var(--s2);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:8px;font-size:0.85rem"></select>
+          </div>
+        </div>
+      </div>
+      <div id="test-guide-content"></div>
+    </div>
+
   </div>
 </div>
 </div>
