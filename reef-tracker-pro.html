@@ -1263,6 +1263,22 @@ function renderHistory(){
   body.innerHTML=filtered.map(e=>{const st=paramStatus(e.param,e.value);const c={ok:'var(--teal)',high:'var(--red)',low:'var(--amber)',none:'var(--muted)'}[st];return`<tr><td>${fmtDt(e.date||e.created_at)}</td><td>${pByKey(e.param)?.name||e.param}</td><td style="font-family:var(--font-head);font-weight:700;color:${c}">${e.value}</td><td style="color:var(--muted)">${e.unit}</td><td style="color:var(--muted);font-size:0.8rem">${e.notes||''}</td><td><button class="del-btn" onclick="delLog('${e.id}')">✕</button></td></tr>`}).join('');
 }
 async function delLog(id){if(!confirm('Delete this reading?'))return;const ok=await dbDelete('rt_logs',id);if(ok){logs=logs.filter(l=>l.id!==id);renderHistory();renderDashboard();toast('Deleted')}}
+async function clearAllData(){
+  if(!logs.length){toast('No readings to clear');return;}
+  if(!confirm('Delete ALL '+logs.length+' parameter readings for this tank? This cannot be undone.'))return;
+  if(!confirm('Are you sure? This permanently deletes every logged reading for the current tank.'))return;
+  try{
+    setSyncStatus('syncing');
+    const tid=currentTankId||'default';
+    const r=await fetch(SURL+'/rest/v1/rt_logs?tank_id=eq.'+encodeURIComponent(tid),{method:'DELETE',headers:SB_HEADERS});
+    if(!r.ok){const d=await r.json().catch(()=>({}));throw d;}
+    setSyncStatus('online');
+    logs=[];
+    renderHistory();renderDashboard();
+    if(typeof updateMainChart==='function')updateMainChart();
+    toast('🗑 All parameter readings cleared');
+  }catch(e){console.error('clearAllData',e);setSyncStatus('offline');toast('Clear failed','error');}
+}
 function exportCSV(){const rows=[['Date','Parameter','Value','Unit','Notes']];[...logs].sort((a,b)=>new Date(b.date||b.created_at)-new Date(a.date||a.created_at)).forEach(l=>{rows.push([fmtDt(l.date||l.created_at),pByKey(l.param)?.name||l.param,l.value,l.unit,l.notes||''])});const csv=rows.map(r=>r.map(c=>`"${c}"`).join(',')).join('\n');const a=document.createElement('a');a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);a.download='reeftrack-export.csv';a.click();toast('⬇ CSV exported')}
 
 // ═══════════════════════════════════════
