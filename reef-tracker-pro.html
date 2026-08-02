@@ -2115,8 +2115,32 @@ async function autoAnalyzeParams(savedParams){
 const CLAUDE_KEY = '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';
 let aiChatHistory = [];
 
+function tankAgeStr(startedISO){
+  const start = new Date(startedISO);
+  if(isNaN(start.getTime())) return 'unknown';
+  const now = new Date();
+  let months = (now.getFullYear()-start.getFullYear())*12 + (now.getMonth()-start.getMonth());
+  if(now.getDate() < start.getDate()) months--;
+  if(months < 0) months = 0;
+  const y = Math.floor(months/12), m = months%12;
+  const parts = [];
+  if(y) parts.push(y+' year'+(y>1?'s':''));
+  if(m) parts.push(m+' month'+(m>1?'s':''));
+  return parts.join(' ') || 'less than a month';
+}
 function getTankContext(){
   const T = getTargets();
+  // Build tank info from the CURRENTLY selected tank so the AI never mixes
+  // up tanks. Fall back to saved settings only when no tanks are defined.
+  const tank = getCurrentTank();
+  const s = getSettings();
+  const _vol = tank ? tank.volume : s.tank_vol;
+  const _sump = tank ? (tank.sump||0) : (s.sump_vol||0);
+  const _total = (parseFloat(_vol)||0) + (parseFloat(_sump)||0);
+  const _name = tank ? tank.name : (s.tank_name||'My Aquarium');
+  const _type = tank ? (tank.type||'Saltwater Reef') : 'Saltwater Reef';
+  const _age = (tank && tank.started) ? tankAgeStr(tank.started) : (s.tank_age||'unknown');
+  const _size = _sump ? `${_vol} gallon display + ${_sump} gallon sump (${_total} total)` : `${_vol} gallon`;
   const recentLogs = [...logs].sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,200);
   const paramSummary = PARAMS.map(p=>{
     const pLogs = recentLogs.filter(l=>l.param===p.key).slice(0,5);
@@ -2139,8 +2163,10 @@ function getTankContext(){
   return `You are an expert reef aquarium assistant with deep knowledge of marine biology, coral husbandry, and water chemistry. You have access to this user's complete tank data.
 
 TANK INFO:
-- Size: 180 gallon display + 40 gallon sump (220 total)
-- Age: 3 years 10 months
+- Name: ${_name}
+- Type: ${_type}
+- Size: ${_size}
+- Age: ${_age}
 
 CURRENT PARAMETERS:
 ${paramSummary || 'No recent readings'}
