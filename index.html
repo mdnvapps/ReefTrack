@@ -1106,8 +1106,23 @@ async function delRODILog(id){const ok=await dbDelete('rt_rodi_usage',id);if(ok)
 // ═══════════════════════════════════════
 // DOSING
 // ═══════════════════════════════════════
+function openDoseModal(){
+  const eid=$('dose-edit-id');if(eid)eid.value='';
+  $('dose-prod').value='';
+  $('dose-amt-num').value='';
+  $('dose-amt-unit').selectedIndex=0;
+  $('dose-method').selectedIndex=0;
+  $('dose-target').selectedIndex=0;
+  $('dose-notes').value='';
+  $('dose-dt').value=nowLocal();
+  const dl=$('dose-prod-list');
+  if(dl){const names=[...new Set(doses.map(d=>d.product).filter(Boolean))];dl.innerHTML=names.map(n=>`<option value="${String(n).replace(/"/g,'&quot;')}"></option>`).join('');}
+  openModal('dose-modal');
+}
 async function saveDose(){
-  const row={product:$('dose-prod').value,amount:$('dose-amt').value,method:$('dose-method').value,date:new Date($('dose-dt').value||Date.now()).toISOString(),target_param:$('dose-target').value||null,notes:$('dose-notes').value||null};
+  const num=($('dose-amt-num').value||'').trim();
+  const amount=num?num+' '+$('dose-amt-unit').value:'';
+  const row={product:($('dose-prod').value||'').trim(),amount:amount,method:$('dose-method').value,date:new Date($('dose-dt').value||Date.now()).toISOString(),target_param:$('dose-target').value||null,notes:$('dose-notes').value||null};
   if(!row.product){toast('Enter a product name');return;}
   const r=await dbInsert('rt_doses',row);if(r){doses.unshift(r);closeModal('dose-modal');toast('💊 Dose logged');renderDosing();renderDashboard();}
 }
