@@ -148,7 +148,7 @@ tr:last-child td{border-bottom:none}
 .modal-close:hover{color:var(--text)}
 .hamburger{display:none;background:none;border:none;color:var(--text);font-size:1.4rem;cursor:pointer;padding:4px}
 @media(max-width:768px){.sidebar{transform:translateX(-100%)}.sidebar.open{transform:translateX(0)}.main{margin-left:0}.hamburger{display:block}.stat-grid{grid-template-columns:repeat(2,1fr)}.content{padding:16px 14px 100px}.bottom-nav{display:flex!important}}
-.overlay{display:none;position:fixed;inset:0;z-index:150;background:rgba(0,0,0,0.5)}.overlay.show{display:block}.bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;background:var(--s1);border-top:1px solid var(--border);z-index:300;padding:6px 0 env(safe-area-inset-bottom,6px)}.bottom-nav-items{display:flex;justify-content:space-around;align-items:center}.bottom-nav-item{display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 10px;cursor:pointer;color:var(--muted);font-size:0.6rem;text-transform:uppercase;letter-spacing:1px;min-width:52px;touch-action:manipulation;-webkit-tap-highlight-color:rgba(0,229,255,0.2)}.bottom-nav-item.active{color:var(--cyan)}.bottom-nav-item .bn-icon{font-size:1.3rem}.bottom-nav-more{display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 10px;cursor:pointer;color:var(--muted);font-size:0.6rem;min-width:52px;touch-action:manipulation}.bottom-nav-more.open{color:var(--cyan)}.more-menu{display:none;position:fixed;bottom:65px;left:0;right:0;background:var(--s1);border-top:1px solid var(--border);z-index:299;padding:8px 0;max-height:60vh;overflow-y:auto}.more-menu.open{display:block}.more-item{display:flex;align-items:center;gap:12px;padding:14px 24px;font-size:0.9rem;color:var(--muted2);cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:rgba(0,229,255,0.2)}.more-item:active{background:rgba(0,229,255,0.07);color:var(--cyan)}
+.overlay{display:none;position:fixed;inset:0;z-index:150;background:rgba(0,0,0,0.5)}.overlay.show{display:block}.bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;background:var(--s1);border-top:1px solid var(--border);z-index:300;padding:6px 0 env(safe-area-inset-bottom,6px)}.bottom-nav-items{display:flex;justify-content:space-around;align-items:center}.bottom-nav-item{display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 10px;cursor:pointer;color:var(--muted);font-size:0.6rem;text-transform:uppercase;letter-spacing:1px;min-width:52px;touch-action:manipulation;-webkit-tap-highlight-color:rgba(0,229,255,0.2)}.bottom-nav-item.active{color:var(--cyan)}.bottom-nav-item .bn-icon{font-size:1.3rem}.bottom-nav-more{display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 10px;cursor:pointer;color:var(--muted);font-size:0.6rem;min-width:52px;touch-action:manipulation}.bottom-nav-more.open{color:var(--cyan)}.more-menu{display:none;position:fixed;bottom:65px;left:0;right:0;background:var(--s1);border-top:1px solid var(--border);z-index:299;padding:8px 0;max-height:60vh;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}.more-backdrop{display:none;position:fixed;inset:0;z-index:298;background:rgba(0,0,0,0.4);touch-action:none}.more-backdrop.open{display:block}body.menu-open{overflow:hidden}.more-menu.open{display:block}.more-item{display:flex;align-items:center;gap:12px;padding:14px 24px;font-size:0.9rem;color:var(--muted2);cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:rgba(0,229,255,0.2)}.more-item:active{background:rgba(0,229,255,0.07);color:var(--cyan)}
 .panel{display:none}.panel.active{display:block}
 .wc-item{display:flex;gap:14px;padding:14px 0;border-bottom:1px solid var(--border)}.wc-item:last-child{border-bottom:none}
 .wc-dot{width:10px;height:10px;border-radius:50%;background:var(--cyan);margin-top:4px;flex-shrink:0}
@@ -695,7 +695,7 @@ tr:last-child td{border-bottom:none}
 
 <div class="toast" id="toast"></div>
 <nav class="bottom-nav" id="bottom-nav"><div class="bottom-nav-items"><div class="bottom-nav-item active" id="bn-dashboard" onclick="gotoMobile('dashboard')"><span class="bn-icon">🏠</span>Home</div><div class="bottom-nav-item" id="bn-log" onclick="gotoMobile('log')"><span class="bn-icon">✏️</span>Log</div><div class="bottom-nav-item" id="bn-params" onclick="gotoMobile('params')"><span class="bn-icon">🧪</span>Charts</div><div class="bottom-nav-item" id="bn-waterchange" onclick="gotoMobile('waterchange')"><span class="bn-icon">💧</span>Water</div><div class="bottom-nav-more" id="bn-more" onclick="toggleMoreMenu()"><span class="bn-icon">☰</span>More</div></div></nav>
-<div class="more-menu" id="more-menu"><div class="more-item" onclick="gotoMobile('rodi')">🔬 RODI Filters</div><div class="more-item" onclick="gotoMobile('dosing')">💊 Dosing</div><div class="more-item" onclick="gotoMobile('par')">☀️ PAR Readings</div><div class="more-item" onclick="gotoMobile('inhabitants')">🐟 Inhabitants</div><div class="more-item" onclick="gotoMobile('equipment')">⚙️ Equipment</div><div class="more-item" onclick="gotoMobile('notes')">📓 Journal</div><div class="more-item" onclick="gotoMobile('photos')">📷 Photos</div><div class="more-item" onclick="gotoMobile('targets')">🎯 Targets</div><div class="more-item" onclick="gotoMobile('kasa')">🔌 Smart Plugs</div>
+<div class="more-backdrop" id="more-backdrop" onclick="closeMoreMenu()"></div><div class="more-menu" id="more-menu"><div class="more-item" onclick="gotoMobile('rodi')">🔬 RODI Filters</div><div class="more-item" onclick="gotoMobile('dosing')">💊 Dosing</div><div class="more-item" onclick="gotoMobile('par')">☀️ PAR Readings</div><div class="more-item" onclick="gotoMobile('inhabitants')">🐟 Inhabitants</div><div class="more-item" onclick="gotoMobile('equipment')">⚙️ Equipment</div><div class="more-item" onclick="gotoMobile('notes')">📓 Journal</div><div class="more-item" onclick="gotoMobile('photos')">📷 Photos</div><div class="more-item" onclick="gotoMobile('targets')">🎯 Targets</div><div class="more-item" onclick="gotoMobile('kasa')">🔌 Smart Plugs</div>
 <div class="more-item" onclick="gotoMobile('ai')">🤖 Reef Assistant</div>
 <div class="more-item" onclick="gotoMobile('reminders')">🔔 Reminders</div>
 <div class="more-item" onclick="gotoMobile('history')">📊 History</div><div class="more-item" onclick="requestNotificationPermission();closeMoreMenu();toast('Requesting notification permission...')">🔔 Enable Notifications</div>
@@ -2680,12 +2680,18 @@ function gotoMobile(page){
 function toggleMoreMenu(){
   const m=document.getElementById("more-menu");
   const btn=document.getElementById("bn-more");
-  m.classList.toggle("open");
-  btn.classList.toggle("open");
+  const bd=document.getElementById("more-backdrop");
+  const open=m.classList.toggle("open");
+  btn.classList.toggle("open",open);
+  if(bd)bd.classList.toggle("open",open);
+  document.body.classList.toggle("menu-open",open);
 }
 function closeMoreMenu(){
   document.getElementById("more-menu").classList.remove("open");
   document.getElementById("bn-more").classList.remove("open");
+  const bd=document.getElementById("more-backdrop");
+  if(bd)bd.classList.remove("open");
+  document.body.classList.remove("menu-open");
 }
 window.addEventListener("click",function(e){
   const m=document.getElementById("more-menu");
