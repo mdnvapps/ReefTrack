@@ -2,6 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🪸</text></svg>">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ReefTrack Pro</title>
@@ -158,19 +161,8 @@ tr:last-child td{border-bottom:none}
 #setup-box{background:var(--s1);border:1px solid var(--border2);border-radius:16px;padding:32px;max-width:480px;width:90%;display:none}
 #setup-box.show{display:block}
 </style>
-<script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
-<script>
-  window.OneSignalDeferred = window.OneSignalDeferred || [];
-  OneSignalDeferred.push(async function(OneSignal) {
-    await OneSignal.init({
-      appId: "66455967-04df-4995-ba7b-2cf3e5164a81",
-      notifyButton: { enable: false },
-      allowLocalhostAsSecureOrigin: true,
-      serviceWorkerPath: 'OneSignalSDKWorker.js',
-      serviceWorkerParam: { scope: '/ReefTrack/' },
-    });
-  });
-</script>
+
+
 </head>
 <body>
 
@@ -224,6 +216,7 @@ tr:last-child td{border-bottom:none}
     <div class="nav-item" data-page="photos" onclick="goto('photos')"><span class="nav-icon">📷</span>Photos</div>
     <div class="nav-item" data-page="targets" onclick="goto('targets')"><span class="nav-icon">🎯</span>Targets</div>
     <div class="nav-item" data-page="history" onclick="goto('history')"><span class="nav-icon">📊</span>Full History</div>
+    <div class="nav-item" data-page="testing" onclick="goto('testing')"><span class="nav-icon">🧪</span>Testing Guide</div>
     <div class="nav-item" data-page="settings" onclick="goto('settings')"><span class="nav-icon">⚙️</span>Settings</div>
   </div>
   <div class="sidebar-footer">180 Gallon Reef · 3yr 10mo<br><button class="btn btn-sm btn-ghost" style="margin-top:8px;width:100%" onclick="requestNotificationPermission();toast('Requesting permission...')">🔔 Enable Notifications</button></div>
@@ -341,7 +334,7 @@ tr:last-child td{border-bottom:none}
     </div>
 
     <div id="panel-dosing" class="panel">
-      <div class="section-head"><span class="section-title">Dosing Log</span><button class="btn btn-primary btn-sm" onclick="openModal('dose-modal')">+ Log Dose</button></div>
+      <div class="section-head"><span class="section-title">Dosing Log</span><button class="btn btn-primary btn-sm" onclick="openDoseModal()">+ Log Dose</button></div>
       <div class="card"><div id="dose-list" class="empty">No dosing logged yet.</div></div>
     </div>
 
@@ -533,6 +526,27 @@ tr:last-child td{border-bottom:none}
       </div>
     </div>
 
+    <div id="panel-testing" class="panel">
+      <div class="section-head"><span class="section-title">🧪 Testing Guide</span></div>
+      <div class="card" style="margin-bottom:16px">
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          <div style="flex:1;min-width:150px">
+            <label style="display:block;font-size:0.78rem;color:var(--muted);margin-bottom:6px">Test Brand</label>
+            <select id="test-brand-select" onchange="selectTestBrand(this.value)" style="width:100%;background:var(--s2);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:8px;font-size:0.85rem">
+              <option value="hanna">Hanna Instruments</option>
+              <option value="api">API Test Kits</option>
+              <option value="salifert">Salifert Test Kits</option>
+            </select>
+          </div>
+          <div style="flex:1;min-width:150px">
+            <label style="display:block;font-size:0.78rem;color:var(--muted);margin-bottom:6px">Parameter</label>
+            <select id="test-param-select" onchange="selectTestParam(this.value)" style="width:100%;background:var(--s2);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:8px;font-size:0.85rem"></select>
+          </div>
+        </div>
+      </div>
+      <div id="test-guide-content"></div>
+    </div>
+
   </div>
 </div>
 </div>
@@ -572,7 +586,39 @@ tr:last-child td{border-bottom:none}
 
 <div class="modal-bg" id="rodi-modal"><div class="modal"><div class="modal-title">🔬 Add RODI Filter Stage</div><button class="modal-close" onclick="closeModal('rodi-modal')">✕</button><div class="form-grid"><div class="fg"><label>Filter Name</label><input type="text" id="rodi-name" placeholder="Sediment, DI Resin..."></div><div class="fg"><label>Stage</label><select id="rodi-stage"><option>Stage 1 – Sediment</option><option>Stage 2 – Carbon Block</option><option>Stage 3 – RO Membrane</option><option>Stage 4 – DI Resin</option><option>Stage 5 – Post Carbon</option><option>Custom</option></select></div><div class="fg"><label>Lifespan (gallons)</label><input type="number" id="rodi-life" placeholder="500"></div><div class="fg"><label>Last Changed</label><input type="date" id="rodi-changed"></div><div class="fg"><label>Gallons Used</label><input type="number" id="rodi-used" value="0"></div></div><div class="form-actions"><button class="btn btn-primary" onclick="saveRODIFilter()">Save</button><button class="btn btn-ghost" onclick="closeModal('rodi-modal')">Cancel</button></div></div></div>
 
-<div class="modal-bg" id="dose-modal"><div class="modal"><div class="modal-title">💊 Log Dosing</div><button class="modal-close" onclick="closeModal('dose-modal')">✕</button><div class="form-grid"><div class="fg"><label>Product</label><input type="text" id="dose-prod" placeholder="Microbacter7, 2-Part A..."></div><div class="fg"><label>Amount</label><input type="text" id="dose-amt" placeholder="5 caps, 10ml..."></div><div class="fg"><label>Method</label><select id="dose-method"><option>Manual – Direct</option><option>Manual – Sump</option><option>Auto Doser</option><option>Kalkwasser</option><option>Two-Part</option><option>Other</option></select></div><div class="fg"><label>Date & Time</label><input type="datetime-local" id="dose-dt"></div><div class="fg"><label>Target Parameter</label><select id="dose-target"><option value="">General / Bacterial</option><option>Alkalinity</option><option>Calcium</option><option>Magnesium</option><option>Phosphate</option><option>Nitrate</option><option>pH</option><option>Other</option></select></div></div><div class="fg" style="margin-top:12px"><label>Notes</label><input type="text" id="dose-notes"></div><div class="form-actions"><button class="btn btn-primary" onclick="saveDose()">Save</button><button class="btn btn-ghost" onclick="closeModal('dose-modal')">Cancel</button></div></div></div>
+<div class="modal-bg" id="dose-modal"><div class="modal"><div class="modal-title">💊 Log Dosing</div><button class="modal-close" onclick="closeModal('dose-modal')">✕</button>
+<input type="hidden" id="dose-edit-id">
+<div class="form-grid">
+  <div class="fg"><label>Product</label>
+    <input type="text" id="dose-prod" placeholder="Type or select..." list="dose-prod-list" autocomplete="off">
+    <datalist id="dose-prod-list"></datalist>
+  </div>
+  <div class="fg"><label>Amount</label>
+    <div style="display:flex;gap:6px">
+      <input type="number" id="dose-amt-num" placeholder="5" style="flex:1;min-width:0">
+      <select id="dose-amt-unit" style="width:100px">
+        <option>ml</option>
+        <option>drops</option>
+        <option>caps</option>
+        <option>tsp</option>
+        <option>tbsp</option>
+        <option>g</option>
+        <option>oz</option>
+        <option>cups</option>
+        <option>tablets</option>
+        <option>squirts</option>
+      </select>
+    </div>
+  </div>
+  <div class="fg"><label>Method</label><select id="dose-method"><option>Manual – Direct</option><option>Manual – Sump</option><option>Auto Doser</option><option>Kalkwasser</option><option>Two-Part</option><option>Other</option></select></div>
+  <div class="fg"><label>Date & Time</label><input type="datetime-local" id="dose-dt"></div>
+  <div class="fg"><label>Target Parameter</label><select id="dose-target"><option value="">General / Bacterial</option><option>Alkalinity</option><option>Calcium</option><option>Magnesium</option><option>Phosphate</option><option>Nitrate</option><option>pH</option><option>Other</option></select></div>
+</div>
+<div class="fg" style="margin-top:12px"><label>Notes</label><input type="text" id="dose-notes"></div>
+<div class="form-actions">
+  <button class="btn btn-primary" onclick="saveDose()">Save</button>
+  <button class="btn btn-ghost" onclick="closeModal('dose-modal')">Cancel</button>
+</div></div></div>
 
 <div class="modal-bg" id="par-modal"><div class="modal"><div class="modal-title">☀️ Log PAR Reading</div><button class="modal-close" onclick="closeModal('par-modal')">✕</button><div class="form-grid"><div class="fg"><label>Location</label><select id="par-loc"><option>Top Left</option><option>Top Center</option><option>Top Right</option><option>Mid Left</option><option>Mid Center</option><option>Mid Right</option><option>Bottom Left</option><option>Bottom Center</option><option>Bottom Right</option><option>Sandbed</option><option>Custom</option></select></div><div class="fg"><label>Custom Location</label><input type="text" id="par-custom"></div><div class="fg"><label>Depth (inches)</label><input type="number" id="par-depth"></div><div class="fg"><label>PAR Value (µmol)</label><input type="number" id="par-val"></div><div class="fg"><label>Light Intensity (%)</label><input type="number" id="par-light-pct" max="100"></div><div class="fg"><label>Date</label><input type="date" id="par-date"></div></div><div class="fg" style="margin-top:12px"><label>Notes</label><input type="text" id="par-notes"></div><div class="form-actions"><button class="btn btn-primary" onclick="savePAR()">Save</button><button class="btn btn-ghost" onclick="closeModal('par-modal')">Cancel</button></div></div></div>
 
@@ -647,6 +693,7 @@ tr:last-child td{border-bottom:none}
 <div class="more-item" onclick="gotoMobile('ai')">🤖 Reef Assistant</div>
 <div class="more-item" onclick="gotoMobile('reminders')">🔔 Reminders</div>
 <div class="more-item" onclick="gotoMobile('history')">📊 History</div><div class="more-item" onclick="requestNotificationPermission();closeMoreMenu();toast('Requesting notification permission...')">🔔 Enable Notifications</div>
+<div class="more-item" onclick="gotoMobile('testing')">🧪 Testing Guide</div>
 <div class="more-item" onclick="gotoMobile('settings')">⚙️ Settings</div></div>
 
 <script>
@@ -809,7 +856,7 @@ async function dbLoad(table){
   try{
     const tid = currentTankId||'default';
     const filter = '&tank_id=eq.'+encodeURIComponent(tid);
-    const orderCol = (table==='rt_waterchanges'||table==='rt_doses'||table==='rt_par'||table==='rt_notes'||table==='rt_photos') ? 'created_at' : 'date';
+    const orderCol = (table==='rt_notes'||table==='rt_photos') ? 'created_at' : 'date';
     const url=SURL+'/rest/v1/'+table+'?select=*&order='+orderCol+'.desc'+filter+'&limit=2000&apikey='+encodeURIComponent(SKEY);
     console.log('Loading',table,'for tank',tid,'url:',url.slice(0,120));
     const r=await fetch(url,{headers:{'apikey':SKEY,'Authorization':'Bearer '+SKEY}});
@@ -899,7 +946,7 @@ async function loadAll(){
 // ═══════════════════════════════════════
 // NAVIGATION
 // ═══════════════════════════════════════
-const TITLES={dashboard:'Dashboard',params:'Parameters',log:'Log Reading',waterchange:'Water Changes',rodi:'RODI Filters',dosing:'Dosing Log',par:'PAR Readings',inhabitants:'Inhabitants',equipment:'Equipment',notes:'Journal / Notes',photos:'Photos',targets:'Target Ranges',history:'Full History',reminders:'Reminders',kasa:'Smart Plugs',ai:'Reef Assistant',settings:'Settings'};
+const TITLES={dashboard:'Dashboard',params:'Parameters',log:'Log Reading',waterchange:'Water Changes',rodi:'RODI Filters',dosing:'Dosing Log',par:'PAR Readings',inhabitants:'Inhabitants',equipment:'Equipment',notes:'Journal / Notes',photos:'Photos',targets:'Target Ranges',history:'Full History',reminders:'Reminders',kasa:'Smart Plugs',ai:'Reef Assistant',settings:'Settings',testing:'Testing Guide'};
 function goto(page){
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
@@ -907,7 +954,7 @@ function goto(page){
   document.querySelectorAll('.nav-item').forEach(n=>{if(n.getAttribute('data-page')===page)n.classList.add('active')});
   const t=$('page-title');if(t)t.textContent=TITLES[page]||page;
   closeSidebar();
-  const renders={dashboard:renderDashboard,params:()=>{buildPillRow('param-pills');updateMainChart()},log:buildLogForm,waterchange:renderWaterChanges,rodi:renderRODI,dosing:renderDosing,par:renderPAR,inhabitants:()=>renderInhabitants('all'),equipment:renderEquipment,notes:renderNotes,photos:renderPhotos,targets:renderTargets,history:renderHistory};
+  const renders={dashboard:renderDashboard,params:()=>{buildPillRow('param-pills');updateMainChart()},log:buildLogForm,waterchange:renderWaterChanges,rodi:renderRODI,dosing:renderDosing,par:renderPAR,inhabitants:()=>renderInhabitants('all'),equipment:renderEquipment,notes:renderNotes,photos:renderPhotos,targets:renderTargets,history:renderHistory,settings:renderSettings,testing:()=>selectTestBrand(currentTestBrand||'hanna')};
   if(renders[page])renders[page]();
 }
 function toggleSidebar(){$('sidebar').classList.toggle('open');$('overlay').classList.toggle('show')}
@@ -1388,7 +1435,46 @@ function checkAllReminders(){
 let tanks = JSON.parse(localStorage.getItem('rt_tanks')||'[]');
 let currentTankId = localStorage.getItem('rt_current_tank')||null;
 
-function saveTanksData(){localStorage.setItem('rt_tanks',JSON.stringify(tanks));}
+async function saveTanksData(){
+  // Save to localStorage as backup
+  localStorage.setItem('rt_tanks',JSON.stringify(tanks));
+}
+
+async function saveTankToCloud(tank){
+  try{
+    const r = await fetch(SURL+'/rest/v1/rt_tanks?apikey='+SKEY, {
+      method: 'POST',
+      headers: {'apikey':SKEY,'Authorization':'Bearer '+SKEY,'Content-Type':'application/json','Prefer':'resolution=merge-duplicates'},
+      body: JSON.stringify(tank)
+    });
+    if(!r.ok) console.error('Save tank error:', await r.text());
+  } catch(e){ console.error('Save tank error:', e); }
+}
+
+async function deleteTankFromCloud(id){
+  try{
+    await fetch(SURL+'/rest/v1/rt_tanks?id=eq.'+id+'&apikey='+SKEY, {
+      method: 'DELETE',
+      headers: {'apikey':SKEY,'Authorization':'Bearer '+SKEY}
+    });
+  } catch(e){ console.error('Delete tank error:', e); }
+}
+
+async function loadTanksFromCloud(){
+  try{
+    const r = await fetch(SURL+'/rest/v1/rt_tanks?select=*&order=created_at.asc&apikey='+SKEY, {
+      headers: {'apikey':SKEY,'Authorization':'Bearer '+SKEY}
+    });
+    if(!r.ok) throw new Error(await r.text());
+    const data = await r.json();
+    if(data && data.length > 0){
+      tanks = data;
+      localStorage.setItem('rt_tanks', JSON.stringify(tanks));
+      return true;
+    }
+  } catch(e){ console.error('Load tanks error:', e); }
+  return false;
+}
 
 function getCurrentTank(){
   if(!tanks.length) return null;
@@ -1428,10 +1514,12 @@ function updateSidebarTankName(){
   }
 }
 
-function initTankSwitcher(){
-  // If no tanks exist yet create default from settings
-  const s = getSettings();
-  if(!tanks.length){
+async function initTankSwitcher(){
+  // Try loading from cloud first
+  const loaded = await loadTanksFromCloud();
+  if(!loaded && !tanks.length){
+    // Fall back to creating default tank
+    const s = getSettings();
     const defaultTank = {
       id:'default',
       name: s.tank_name||'My Aquarium',
@@ -1444,8 +1532,13 @@ function initTankSwitcher(){
     tanks.push(defaultTank);
     currentTankId = 'default';
     saveTanksData();
+    saveTankToCloud(defaultTank);
     localStorage.setItem('rt_current_tank','default');
   }
+  // Restore last selected tank
+  const saved = localStorage.getItem('rt_current_tank');
+  if(saved && tanks.find(t=>t.id===saved)) currentTankId = saved;
+  else if(tanks.length) currentTankId = tanks[0].id;
   updateSidebarTankName();
 }
 
@@ -1463,6 +1556,7 @@ function saveTank(){
       tank.started = document.getElementById('tank-started-input')?.value||'';
       tank.notes = document.getElementById('tank-notes-input')?.value||'';
       saveTanksData();
+      saveTankToCloud(tank);
       window._editingTankId = null;
       closeModal('tank-modal');
       toast('✓ Tank updated!');
@@ -1483,6 +1577,7 @@ function saveTank(){
   };
   tanks.push(tank);
   saveTanksData();
+  saveTankToCloud(tank);
   if(!currentTankId){currentTankId=tank.id;localStorage.setItem('rt_current_tank',tank.id);}
   closeModal('tank-modal');
   toast('🐠 '+name+' added!');
@@ -1523,6 +1618,7 @@ function deleteTank(id){
     // Already showing confirm - do the delete
     tanks = tanks.filter(t=>t.id!==id);
     saveTanksData();
+    deleteTankFromCloud(id);
     if(currentTankId===id){currentTankId=tanks[0].id;localStorage.setItem('rt_current_tank',tanks[0].id);}
     renderSettings();
     updateSidebarTankName();
@@ -1564,6 +1660,236 @@ function renderTankList(){
       </div>
     </div></div>
   `).join('');
+}
+
+
+// ═══════════════════════════════════════
+// TESTING GUIDE
+// ═══════════════════════════════════════
+const TEST_GUIDES = {
+  hanna: {
+    label: 'Hanna Instruments',
+    color: 'var(--cyan)',
+    tests: [
+      {
+        name: 'Phosphate (ULR)',
+        model: 'HI774',
+        icon: '🧪',
+        target: '0.03–0.09 ppm',
+        steps: [
+          'Rinse cuvette with tank water 3 times',
+          'Fill cuvette to 10mL line with tank water',
+          'Place cuvette in checker — press READ for blank (wait for result)',
+          'Remove cuvette and add contents of ONE HI774-26 reagent packet',
+          'Cap and shake gently for 10 seconds',
+          'Wait exactly 3 minutes (use timer)',
+          'Place cuvette back in checker — press READ',
+          'Result shown in ppb — divide by 1000 to get ppm (e.g. 50 ppb = 0.05 ppm)'
+        ],
+        tips: 'Rinse cuvette immediately after use. Store reagents in cool dark place. Each packet is single use.'
+      },
+      {
+        name: 'Nitrate',
+        model: 'HI781',
+        icon: '🧪',
+        target: '1–5 ppm',
+        steps: [
+          'Rinse cuvette with tank water 3 times',
+          'Fill cuvette to 10mL with tank water',
+          'Place in checker — press READ for blank',
+          'Remove and add contents of ONE HI781-26 reagent packet',
+          'Cap and shake vigorously for 60 seconds',
+          'Wait exactly 5 minutes',
+          'Place back in checker — press READ',
+          'Result shown in ppm directly'
+        ],
+        tips: 'The 60 second shake is critical — set a timer. Incomplete shaking gives false low readings.'
+      },
+      {
+        name: 'Alkalinity',
+        model: 'HI755',
+        icon: '🧪',
+        target: '8–10 dKH',
+        steps: [
+          'Rinse cuvette with tank water 3 times',
+          'Fill cuvette to 10mL with tank water',
+          'Place in checker — press READ for blank',
+          'Remove and add contents of ONE HI755-26 reagent packet',
+          'Cap and shake gently for 30 seconds',
+          'Wait exactly 2 minutes',
+          'Place back in checker — press READ',
+          'Result shown in ppm — divide by 17.8 to convert to dKH'
+        ],
+        tips: 'Result comes out in mg/L. To convert: mg/L ÷ 17.8 = dKH. E.g. 160 mg/L = 9.0 dKH'
+      }
+    ]
+  },
+  api: {
+    label: 'API Test Kits',
+    color: '#ff6b35',
+    tests: [
+      {
+        name: 'Ammonia',
+        model: 'API Ammonia',
+        icon: '🔴',
+        target: '0 ppm',
+        steps: [
+          'Fill test tube to 5mL line with tank water',
+          'Add 8 drops of Ammonia Test Solution Bottle #1',
+          'Cap and invert gently to mix',
+          'Add 8 drops of Ammonia Test Solution Bottle #2',
+          'Cap and shake vigorously for 5 seconds',
+          'Wait exactly 5 minutes',
+          'Compare color to chart in bright natural light',
+          'Match the color to the closest value on the chart'
+        ],
+        tips: 'Read color immediately after 5 minutes — color can deepen over time giving false high readings. Green = safe, yellow-green = elevated, yellow = danger.'
+      },
+      {
+        name: 'Calcium',
+        model: 'API Calcium',
+        icon: '🟡',
+        target: '380–450 ppm',
+        steps: [
+          'Fill test tube to 5mL line with tank water',
+          'Add 10 drops of Calcium Test Solution Bottle #1',
+          'Cap and mix by inverting 3-4 times',
+          'Add Calcium Test Solution Bottle #2 ONE DROP AT A TIME',
+          'Cap and invert after each drop to mix',
+          'Count drops until color changes from pink/red to BLUE',
+          'Multiply number of drops by 20 = calcium in ppm',
+          'E.g. 22 drops × 20 = 440 ppm'
+        ],
+        tips: 'The endpoint color change is from pink to blue — stop counting at first clear blue. Each drop = 20 ppm so accuracy matters.'
+      },
+      {
+        name: 'Nitrate',
+        model: 'API Nitrate',
+        icon: '🟠',
+        target: '1–5 ppm',
+        steps: [
+          'Fill test tube to 5mL line with tank water',
+          'Add 10 drops of Nitrate Test Solution Bottle #1',
+          'Cap and invert gently 3 times',
+          'Shake Nitrate Bottle #2 VIGOROUSLY for 30 seconds (critical!)',
+          'Add 10 drops of Bottle #2',
+          'Cap and shake tube vigorously for 1 minute',
+          'Wait exactly 5 minutes',
+          'Compare color to chart in bright natural light'
+        ],
+        tips: 'Shaking Bottle #2 for 30 seconds before use is CRITICAL — the reagent settles and gives false low readings if not shaken properly.'
+      }
+    ]
+  },
+  salifert: {
+    label: 'Salifert Test Kits',
+    color: '#00c853',
+    tests: [
+      {
+        name: 'Nitrate',
+        model: 'Salifert Nitrate',
+        icon: '🟢',
+        target: '1–5 ppm',
+        steps: [
+          'Using the large syringe, draw up 1mL of tank water',
+          'Inject into the test vial',
+          'Add 2 drops of NO3-1 reagent',
+          'Swirl gently to mix — wait 30 seconds',
+          'Add the ENTIRE contents of ONE NO3-2 spoon',
+          'Cap vial and shake for 30 seconds',
+          'Wait exactly 3 minutes',
+          'Place vial on white comparator card and compare color in daylight'
+        ],
+        tips: 'Use the exact amount of NO3-2 powder — too much or too little affects accuracy. Natural daylight gives best color matching.'
+      },
+      {
+        name: 'Phosphate',
+        model: 'Salifert Phosphate',
+        icon: '🟢',
+        target: '0.03–0.09 ppm',
+        steps: [
+          'Using the syringe, draw up 5mL of tank water into the vial',
+          'Add ONE level (not heaped) micro spoon of PO4-1 powder',
+          'Cap and swirl gently until dissolved',
+          'Wait exactly 5 minutes',
+          'Place vial on comparator card and compare color in bright daylight',
+          'Read result in ppm'
+        ],
+        tips: 'A level micro spoon is critical — heaping gives falsely high readings. Compare against white background in natural light for best accuracy.'
+      },
+      {
+        name: 'Magnesium',
+        model: 'Salifert Magnesium',
+        icon: '🟢',
+        target: '1250–1350 ppm',
+        steps: [
+          'Using the large syringe, draw up 1mL of tank water',
+          'Inject into the large test vial',
+          'Add 3 drops of MG-1 reagent — swirl to mix',
+          'Add ONE spoon of MG-2 powder — swirl until dissolved',
+          'Add MG-3 reagent ONE DROP AT A TIME, swirling after each drop',
+          'Count drops until color changes from pink to BLUE',
+          'Multiply drops by 100 = magnesium in ppm',
+          'E.g. 13 drops × 100 = 1300 ppm'
+        ],
+        tips: 'Like API Calcium, this is a titration test. Stop at the first clear blue color change. Each drop = 100 ppm so count carefully.'
+      }
+    ]
+  }
+};
+
+let currentTestBrand = 'hanna';
+
+let currentTestParam = 0;
+
+function selectTestBrand(brand){
+  currentTestBrand = brand;
+  currentTestParam = 0;
+  // Update brand dropdown
+  const bd = document.getElementById('test-brand-select');
+  if(bd) bd.value = brand;
+  // Update param dropdown
+  const pd = document.getElementById('test-param-select');
+  const guide = TEST_GUIDES[brand];
+  if(pd && guide){
+    pd.innerHTML = guide.tests.map((t,i)=>`<option value="${i}">${t.name}</option>`).join('');
+    pd.value = '0';
+  }
+  selectTestParam(0);
+}
+
+function selectTestParam(idx){
+  currentTestParam = parseInt(idx)||0;
+  const pd = document.getElementById('test-param-select');
+  if(pd) pd.value = currentTestParam;
+  renderTesting();
+}
+
+function renderTesting(){
+  const guide = TEST_GUIDES[currentTestBrand];
+  if(!guide) return;
+  const el = document.getElementById('test-guide-content');
+  if(!el) return;
+  const test = guide.tests[currentTestParam];
+  if(!test) return;
+
+  const stepsHtml = test.steps.map((step,i)=>'<div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:10px">'
+    +'<div style="width:24px;height:24px;border-radius:50%;background:var(--cyan);display:flex;align-items:center;justify-content:center;font-size:0.72rem;font-weight:700;color:#000;flex-shrink:0">'+(i+1)+'</div>'
+    +'<div style="font-size:0.88rem;line-height:1.6;padding-top:2px">'+step+'</div>'
+    +'</div>').join('');
+
+  el.innerHTML = '<div class="card">'
+    +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">'
+    +'<div><div style="font-weight:700;font-size:1.1rem">'+test.icon+' '+test.name+'</div>'
+    +'<div style="font-size:0.75rem;color:var(--muted)">'+test.model+'</div></div>'
+    +'<div style="background:rgba(0,229,255,0.1);color:var(--cyan);padding:4px 12px;border-radius:20px;font-size:0.75rem;font-weight:600">Target: '+test.target+'</div>'
+    +'</div>'
+    +stepsHtml
+    +'<div style="background:rgba(255,200,0,0.08);border:1px solid rgba(255,200,0,0.2);border-radius:8px;padding:10px 12px;font-size:0.8rem;color:var(--amber);line-height:1.5;margin-top:12px">'
+    +'💡 '+test.tips+'</div>'
+    +'<button class="btn btn-primary" style="margin-top:14px;width:100%" onclick="goto(&quot;log&quot;)">'
+    +'+ Log '+test.name+' Reading</button>'
+    +'</div>';
 }
 
 // ═══════════════════════════════════════
