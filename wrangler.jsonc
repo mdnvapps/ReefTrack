@@ -1,0 +1,12 @@
+{
+  // Cloudflare Worker config for ReefTrack.
+  // Makes reeftrack-kasa a CODE Worker (runs _worker.js) instead of a
+  // static-assets-only Worker, so the /claude AI proxy endpoint works.
+  "name": "reeftrack-kasa",
+  "main": "_worker.js",
+  "compatibility_date": "2024-11-01",
+  "assets": {
+    "directory": "./",
+    "binding": "ASSETS"
+  }
+}
