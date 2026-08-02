@@ -1,7 +1,8 @@
-// ReefTrack code Worker
-// Serves the /claude endpoint (proxies the Anthropic API using the CLAUDE_KEY
-// secret) and passes every other request through to the static site assets.
-// The API key lives ONLY in the Cloudflare "CLAUDE_KEY" secret — never in code.
+// ReefTrack AI proxy — pure code Worker.
+// POST /claude proxies to the Anthropic Messages API using the CLAUDE_KEY
+// secret (the key stays in Cloudflare secrets, never in code). Every other
+// path returns a simple health check. The app UI is served by GitHub Pages,
+// so this Worker does not serve any static assets.
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -46,10 +47,6 @@ export default {
       }
     }
 
-    // Everything else: serve the static site if assets are bound, else a health check.
-    if (env.ASSETS) {
-      return env.ASSETS.fetch(request);
-    }
     return json({ status: 'ok' }, 200);
   },
 };
