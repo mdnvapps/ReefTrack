@@ -47,6 +47,41 @@ export default {
       }
     }
 
+    // Kasa (TP-Link) cloud proxy. The app sends { url, payload }; we forward
+    // payload as a POST to the TP-Link cloud and return its JSON. The target
+    // host is restricted to tplinkcloud.com so this can't be used as an open
+    // proxy. No credentials are stored here — the app passes them per request
+    // and only a short-lived token is kept client-side.
+    if (url.pathname === '/kasa') {
+      if (request.method !== 'POST') {
+        return json({ error: 'Use POST for /kasa' }, 405);
+      }
+      try {
+        const { url: target, payload } = await request.json();
+        let host;
+        try {
+          host = new URL(target).host;
+        } catch {
+          return json({ error: 'Invalid target url' }, 400);
+        }
+        if (!/(^|\.)tplinkcloud\.com$/.test(host)) {
+          return json({ error: 'Target host not allowed' }, 403);
+        }
+        const upstream = await fetch(target, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const text = await upstream.text();
+        return new Response(text, {
+          status: upstream.status,
+          headers: { ...CORS, 'Content-Type': 'application/json' },
+        });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
     return json({ status: 'ok' }, 200);
   },
 };

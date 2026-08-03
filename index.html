@@ -960,7 +960,7 @@ function goto(page){
   document.querySelectorAll('.nav-item').forEach(n=>{if(n.getAttribute('data-page')===page)n.classList.add('active')});
   const t=$('page-title');if(t)t.textContent=TITLES[page]||page;
   closeSidebar();
-  const renders={dashboard:renderDashboard,params:()=>{buildPillRow('param-pills');updateMainChart()},log:buildLogForm,waterchange:renderWaterChanges,rodi:renderRODI,dosing:renderDosing,par:renderPAR,inhabitants:()=>renderInhabitants('all'),equipment:renderEquipment,notes:renderNotes,photos:renderPhotos,targets:renderTargets,history:renderHistory,settings:renderSettings,testing:()=>selectTestBrand(currentTestBrand||'hanna')};
+  const renders={dashboard:renderDashboard,params:()=>{buildPillRow('param-pills');updateMainChart()},log:buildLogForm,waterchange:renderWaterChanges,rodi:renderRODI,dosing:renderDosing,par:renderPAR,inhabitants:()=>renderInhabitants('all'),equipment:renderEquipment,notes:renderNotes,photos:renderPhotos,targets:renderTargets,history:renderHistory,settings:renderSettings,testing:()=>selectTestBrand(currentTestBrand||'hanna'),kasa:()=>{renderKasaPlugs();if(kasaAuth)refreshKasa();}};
   if(renders[page])renders[page]();
 }
 function toggleSidebar(){$('sidebar').classList.toggle('open');$('overlay').classList.toggle('show')}
@@ -2353,146 +2353,191 @@ async function aiLookupInhabitant(){
 }
 
 // ═══════════════════════════════════════
-// KASA HS300 LOCAL CONTROL
+// KASA CLOUD CONTROL (TP-Link Kasa cloud API, proxied via the Worker)
 // ═══════════════════════════════════════
-const KASA_IP = '192.168.4.97';
-const KASA_PORT = 9999;
 const KASA_WORKER = 'https://reeftrack-kasa.mdnvapps.workers.dev';
-const KASA_PLUGS = [
-  {index:0, name:'ReefMat',     icon:'🧹'},
-  {index:1, name:'Skimmer',     icon:'💨'},
-  {index:2, name:'ATO',         icon:'💧'},
-  {index:3, name:'Fuge Light',  icon:'💡'},
-  {index:4, name:'Doser',       icon:'💊'},
-  {index:5, name:'Return Pump', icon:'🔄'},
+const KASA_LOGIN_URL = 'https://wap.tplinkcloud.com';
+// Outlet aliases containing any of these words are treated as critical and
+// require a confirmation before switching.
+const KASA_CRITICAL = ['return pump', 'return', 'ato', 'doser', 'dose'];
+const KASA_ICONS = [
+  {kw:'return', icon:'🔄'}, {kw:'ato', icon:'💧'}, {kw:'dose', icon:'💊'},
+  {kw:'skim', icon:'💨'}, {kw:'mat', icon:'🧹'}, {kw:'light', icon:'💡'},
+  {kw:'heat', icon:'🔥'}, {kw:'wave', icon:'🌊'}, {kw:'pump', icon:'🌀'},
 ];
 
+let kasaAuth = JSON.parse(localStorage.getItem('kasa_auth')||'null'); // {token, appServerUrl, deviceId, deviceAlias}
 let kasaStates = {};
-let kasaRefreshInterval = null;
+let kasaChildren = [];   // outlets from get_sysinfo
+let kasaSysDeviceId = '';
 
-// Kasa uses a simple XOR encryption on port 9999
-function kasaEncrypt(str){
-  let key=171, buf=Buffer ? Buffer.alloc(str.length+4) : null;
-  // Use fetch to a proxy since direct TCP not possible in browser
-  // We'll use the Kasa local HTTP API instead (newer firmware supports it)
-  return str;
+function kasaIconFor(name){
+  const n=(name||'').toLowerCase();
+  const hit=KASA_ICONS.find(x=>n.includes(x.kw));
+  return hit?hit.icon:'🔌';
+}
+function kasaIsCritical(name){
+  const n=(name||'').toLowerCase();
+  return KASA_CRITICAL.some(k=>n.includes(k));
+}
+function kasaUUID(){
+  let u=localStorage.getItem('kasa_uuid');
+  if(!u){ u=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():('u'+Date.now().toString(16)+Math.floor(Math.random()*1e9).toString(16)); localStorage.setItem('kasa_uuid',u); }
+  return u;
 }
 
-async function kasaCommand(action, plug=null){
+// Thin proxy through the Worker to the TP-Link cloud (Worker restricts the
+// target host to tplinkcloud.com). Returns the parsed TP-Link JSON.
+async function kasaProxy(target, payload){
+  const r=await fetch(KASA_WORKER+'/kasa',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({url:target, payload})
+  });
+  return r.json();
+}
+
+async function kasaLogin(email, password){
+  const res=await kasaProxy(KASA_LOGIN_URL,{
+    method:'login',
+    params:{appType:'Kasa_Android', cloudUserName:email, cloudPassword:password, terminalUUID:kasaUUID()}
+  });
+  if(res.error_code!==0 || !res.result || !res.result.token) throw new Error(res.msg||'Login failed (check email/password)');
+  return res.result.token;
+}
+async function kasaGetDevices(token){
+  const res=await kasaProxy(KASA_LOGIN_URL+'/?token='+encodeURIComponent(token),{method:'getDeviceList'});
+  if(res.error_code!==0) throw new Error(res.msg||'Could not list devices');
+  return (res.result&&res.result.deviceList)||[];
+}
+async function kasaPassthrough(requestData){
+  if(!kasaAuth) throw new Error('Not connected');
+  const res=await kasaProxy(kasaAuth.appServerUrl+'/?token='+encodeURIComponent(kasaAuth.token),{
+    method:'passthrough',
+    params:{deviceId:kasaAuth.deviceId, requestData:JSON.stringify(requestData)}
+  });
+  if(res.error_code!==0){
+    if(res.error_code===-20651 || res.error_code===-20675){ kasaLogout(); throw new Error('Session expired — please log in again'); }
+    throw new Error(res.msg||('TP-Link error '+res.error_code));
+  }
+  return JSON.parse(res.result.responseData);
+}
+
+function renderKasaLogin(msg){
+  const st=document.getElementById('kasa-status-text');
+  if(st) st.textContent = msg || 'Not connected';
+  const warn=document.getElementById('kasa-warning'); if(warn) warn.style.display='none';
+  const grid=document.getElementById('kasa-plugs'); if(!grid) return;
+  grid.innerHTML='<div class="card" style="grid-column:1/-1;max-width:440px">'
+    +'<div class="section-label">🔌 Connect your Kasa account</div>'
+    +'<div style="font-size:0.8rem;color:var(--muted);line-height:1.5;margin-bottom:14px">Log in with your TP-Link Kasa app account to control your plugs from here. Your password is sent only to TP-Link (through your own Worker) to obtain a login token — it is never stored.</div>'
+    +'<div class="fg"><label>Kasa email</label><input type="email" id="kasa-email" autocomplete="username" placeholder="you@example.com"></div>'
+    +'<div class="fg" style="margin-top:10px"><label>Kasa password</label><input type="password" id="kasa-password" autocomplete="current-password" placeholder="••••••••"></div>'
+    +'<button class="btn btn-primary" style="margin-top:14px;width:100%" onclick="doKasaLogin()">Connect</button>'
+    +'</div>';
+}
+
+async function doKasaLogin(){
+  const email=document.getElementById('kasa-email')?.value.trim();
+  const password=document.getElementById('kasa-password')?.value;
+  if(!email||!password){toast('Enter your Kasa email and password');return;}
+  const st=document.getElementById('kasa-status-text'); if(st) st.textContent='🔄 Logging in...';
   try{
-    let url = `${KASA_WORKER}?action=${action}`;
-    if(plug !== null) url += `&plug=${plug}`;
-    const controller = new AbortController();
-    const timeout = setTimeout(()=>controller.abort(), 5000);
-    const resp = await fetch(url);
-    clearTimeout(timeout);
-    if(resp.ok) return await resp.json();
-    throw new Error('Worker error');
-  } catch(e){
-    console.log('Kasa worker:', e.message);
-    return null;
+    const token=await kasaLogin(email,password);
+    const devices=await kasaGetDevices(token);
+    if(!devices.length) throw new Error('No devices on this Kasa account');
+    // Prefer a power strip (HS300 / KP303 / EP40); else first online device.
+    const strip = devices.find(d=>/HS300|KP303|EP40|strip/i.test((d.deviceModel||'')+' '+(d.alias||'')))
+               || devices.find(d=>d.status===1) || devices[0];
+    kasaAuth={token, appServerUrl:strip.appServerUrl, deviceId:strip.deviceId, deviceAlias:strip.alias||'Kasa device'};
+    localStorage.setItem('kasa_auth', JSON.stringify(kasaAuth));
+    toast('✅ Connected to '+kasaAuth.deviceAlias);
+    await refreshKasa();
+  }catch(e){
+    if(st) st.textContent='❌ '+e.message;
+    toast('Kasa login failed: '+e.message,'error');
   }
 }
 
-async function getKasaStatus(){
-  const cmd = {
-    "method": "get_device_info",
-    "params": null
-  };
-  const result = await kasaCommand(cmd);
-  return result;
+function kasaLogout(){
+  kasaAuth=null; kasaChildren=[]; kasaStates={}; kasaSysDeviceId='';
+  localStorage.removeItem('kasa_auth');
+  renderKasaLogin('Disconnected');
 }
 
 async function refreshKasa(){
-  const statusEl = document.getElementById('kasa-status-text');
-  const warningEl = document.getElementById('kasa-warning');
-  if(statusEl) statusEl.textContent = '🔄 Connecting to HS300...';
-  if(warningEl) warningEl.style.display = 'none';
-
-  const data = await kasaCommand('status');
-  
-  if(!data || data.error){
-    if(statusEl) statusEl.textContent = '❌ Could not connect to HS300';
-    if(warningEl) warningEl.style.display = 'block';
-    renderKasaPlugs(null);
-    return;
-  }
-
+  if(!kasaAuth){ renderKasaLogin(); return; }
+  const st=document.getElementById('kasa-status-text');
+  const warn=document.getElementById('kasa-warning');
+  if(st) st.textContent='🔄 Connecting to '+kasaAuth.deviceAlias+'...';
+  if(warn) warn.style.display='none';
   try{
-    const children = data.system.get_sysinfo.children;
-    children.forEach((child, i) => {
-      kasaStates[i] = child.state === 1;
-    });
+    const info=await kasaPassthrough({system:{get_sysinfo:{}}});
+    const sys=info.system.get_sysinfo;
+    kasaSysDeviceId=sys.deviceId||kasaAuth.deviceId;
+    kasaChildren = (sys.children&&sys.children.length) ? sys.children : [{id:'', alias:sys.alias, state:sys.relay_state}];
+    kasaStates={};
+    kasaChildren.forEach((c,i)=>{ kasaStates[i]=c.state===1; });
     localStorage.setItem('kasa_states', JSON.stringify(kasaStates));
-    if(statusEl) statusEl.textContent = '✅ Connected — ' + new Date().toLocaleTimeString();
-  } catch(e){
-    if(statusEl) statusEl.textContent = '⚠️ Connected but could not read states';
+    if(st) st.textContent='✅ '+kasaAuth.deviceAlias+' — '+new Date().toLocaleTimeString();
+    renderKasaPlugs();
+  }catch(e){
+    if(!kasaAuth) return; // logged out by the session-expiry handler
+    if(st) st.textContent='❌ '+e.message;
+    if(warn) warn.style.display='block';
+    renderKasaPlugs();
   }
-  renderKasaPlugs(null);
 }
 
-function renderKasaPlugs(states){
-  const grid = document.getElementById('kasa-plugs');
-  if(!grid) return;
-  
-  grid.innerHTML = KASA_PLUGS.map(plug => {
-    const state = kasaStates[plug.index];
-    const isOn = state === true;
-    const isOff = state === false;
-    const unknown = state === undefined;
-    
-    const cardColor = isOn ? 'border-color:var(--teal)' : isOff ? 'border-color:var(--border)' : 'border-color:var(--border)';
-    const dotColor = isOn ? 'var(--teal)' : isOff ? 'var(--muted)' : 'var(--muted)';
-    const statusText = isOn ? 'ON' : isOff ? 'OFF' : 'Unknown';
-    const statusColor = isOn ? 'var(--teal)' : 'var(--muted)';
-    
-    return `<div class="filter-card" style="${cardColor};transition:all 0.3s">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-        <span style="font-size:1.4rem">${plug.icon}</span>
-        <span style="width:10px;height:10px;border-radius:50%;background:${dotColor};display:inline-block;${isOn?'box-shadow:0 0 8px '+dotColor:''}"></span>
-      </div>
-      <div class="filter-name">${plug.name}</div>
-      <div style="font-size:0.75rem;color:${statusColor};font-weight:700;margin-bottom:12px">${statusText}</div>
-      <div style="display:flex;gap:6px">
-        <button class="btn btn-sm ${isOn?'btn-teal':'btn-ghost'}" onclick="toggleKasa(${plug.index}, true)" style="flex:1">ON</button>
-        <button class="btn btn-sm ${isOff?'btn-danger':'btn-ghost'}" onclick="toggleKasa(${plug.index}, false)" style="flex:1">OFF</button>
-      </div>
-      ${state!==undefined?`<div style="font-size:0.68rem;color:var(--muted);margin-top:6px;text-align:center">Last set manually</div>`:''}
-    </div>`;
-  }).join('');
+function renderKasaPlugs(){
+  const grid=document.getElementById('kasa-plugs'); if(!grid) return;
+  if(!kasaAuth){ renderKasaLogin(); return; }
+  if(!kasaChildren.length){ grid.innerHTML='<div class="empty" style="grid-column:1/-1">No outlets found. Tap ↻ Refresh.</div>'; return; }
+  grid.innerHTML = kasaChildren.map((c,i)=>{
+    const name=c.alias||('Outlet '+(i+1));
+    const on=kasaStates[i]===true;
+    const crit=kasaIsCritical(name);
+    const dot=on?'var(--teal)':'var(--muted)';
+    return '<div class="filter-card" style="'+(on?'border-color:var(--teal)':'')+';transition:all 0.3s">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'
+      +'<span style="font-size:1.4rem">'+kasaIconFor(name)+'</span>'
+      +'<span style="width:10px;height:10px;border-radius:50%;background:'+dot+';display:inline-block;'+(on?'box-shadow:0 0 8px '+dot:'')+'"></span>'
+      +'</div>'
+      +'<div class="filter-name">'+name+(crit?' <span title="Critical equipment">⚠️</span>':'')+'</div>'
+      +'<div style="font-size:0.75rem;color:'+(on?'var(--teal)':'var(--muted)')+';font-weight:700;margin-bottom:12px">'+(on?'ON':'OFF')+'</div>'
+      +'<div style="display:flex;gap:6px">'
+      +'<button class="btn btn-sm '+(on?'btn-teal':'btn-ghost')+'" onclick="toggleKasa('+i+',true)" style="flex:1">ON</button>'
+      +'<button class="btn btn-sm '+(!on?'btn-danger':'btn-ghost')+'" onclick="toggleKasa('+i+',false)" style="flex:1">OFF</button>'
+      +'</div>'
+      +(crit?'<div style="font-size:0.66rem;color:var(--amber);margin-top:6px;text-align:center">Confirms before switching</div>':'')
+      +'</div>';
+  }).join('') + '<div style="grid-column:1/-1;margin-top:6px"><button class="btn btn-sm btn-ghost" onclick="kasaLogout()">Disconnect account</button></div>';
 }
 
-function toggleKasa(plugIndex, turnOn){
-  // Store state locally since we can't reach TCP directly from browser
-  kasaStates[plugIndex] = turnOn;
-  localStorage.setItem('kasa_states', JSON.stringify(kasaStates));
-  
-  const plug = KASA_PLUGS[plugIndex];
-  toast(`${plug.icon} ${plug.name} marked ${turnOn?'ON':'OFF'}`);
-  
-  // Control via Cloudflare Worker
-  kasaCommand(turnOn ? 'on' : 'off', plugIndex).then(result => {
-    if(result && !result.error){
-      toast(`✅ ${plug.name} turned ${turnOn?'ON':'OFF'}!`);
-      // Refresh status after toggle
-      setTimeout(refreshKasa, 1000);
-    } else {
-      toast(`⚠️ Could not reach HS300 — state saved locally`);
-    }
-  });
-  
-  renderKasaPlugs(null);
-}
-
-function showKasaInstructions(name, turnOn){
-  // Already stored in app, just inform user
-  console.log('Kasa toggle stored locally');
+async function toggleKasa(i, turnOn){
+  const child=kasaChildren[i]; if(!child) return;
+  const name=child.alias||('Outlet '+(i+1));
+  if(kasaIsCritical(name)){
+    if(!confirm('⚠️ "'+name+'" is critical equipment.\n\nReally turn it '+(turnOn?'ON':'OFF')+'?')) return;
+  }
+  // A child id is either a 2-digit outlet index (prefix with the device id)
+  // or the already-full child id (use as-is).
+  const cid = child.id ? (child.id.length<=2 ? (kasaSysDeviceId+child.id) : child.id) : null;
+  const req = cid ? {context:{child_ids:[cid]}, system:{set_relay_state:{state:turnOn?1:0}}}
+                  : {system:{set_relay_state:{state:turnOn?1:0}}};
+  const st=document.getElementById('kasa-status-text');
+  if(st) st.textContent='🔄 Switching '+name+'...';
+  try{
+    await kasaPassthrough(req);
+    toast((turnOn?'🟢':'⚪')+' '+name+' turned '+(turnOn?'ON':'OFF'));
+    await refreshKasa();
+  }catch(e){
+    toast('Kasa command failed: '+e.message,'error');
+    if(st) st.textContent='❌ '+e.message;
+  }
 }
 
 function renderKasaDashboard(){
-  // Show mini kasa status on dashboard
-  const states = JSON.parse(localStorage.getItem('kasa_states')||'{}');
-  kasaStates = states;
+  kasaStates = JSON.parse(localStorage.getItem('kasa_states')||'{}');
 }
 
 // ═══════════════════════════════════════
