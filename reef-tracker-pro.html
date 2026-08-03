@@ -2366,10 +2366,10 @@ const KASA_ICONS = [
   {kw:'heat', icon:'🔥'}, {kw:'wave', icon:'🌊'}, {kw:'pump', icon:'🌀'},
 ];
 
-let kasaAuth = JSON.parse(localStorage.getItem('kasa_auth')||'null'); // {token, appServerUrl, deviceId, deviceAlias}
-let kasaStates = {};
-let kasaChildren = [];   // outlets from get_sysinfo
-let kasaSysDeviceId = '';
+let kasaAuth = JSON.parse(localStorage.getItem('kasa_auth')||'null');       // {token}
+let kasaDevices = JSON.parse(localStorage.getItem('kasa_devices')||'[]');   // [{deviceId, appServerUrl, alias, model}]
+let kasaOutlets = [];   // flat [{deviceId, appServerUrl, deviceAlias, childId, alias, on}]
+let kasaStates = {};    // kept for the dashboard mini-status
 
 function kasaIconFor(name){
   const n=(name||'').toLowerCase();
@@ -2409,11 +2409,12 @@ async function kasaGetDevices(token){
   if(res.error_code!==0) throw new Error(res.msg||'Could not list devices');
   return (res.result&&res.result.deviceList)||[];
 }
-async function kasaPassthrough(requestData){
+// Passthrough to a specific device.
+async function kasaPassthrough(device, requestData){
   if(!kasaAuth) throw new Error('Not connected');
-  const res=await kasaProxy(kasaAuth.appServerUrl+'/?token='+encodeURIComponent(kasaAuth.token),{
+  const res=await kasaProxy(device.appServerUrl+'/?token='+encodeURIComponent(kasaAuth.token),{
     method:'passthrough',
-    params:{deviceId:kasaAuth.deviceId, requestData:JSON.stringify(requestData)}
+    params:{deviceId:device.deviceId, requestData:JSON.stringify(requestData)}
   });
   if(res.error_code!==0){
     if(res.error_code===-20651 || res.error_code===-20675){ kasaLogout(); throw new Error('Session expired — please log in again'); }
@@ -2443,14 +2444,15 @@ async function doKasaLogin(){
   const st=document.getElementById('kasa-status-text'); if(st) st.textContent='🔄 Logging in...';
   try{
     const token=await kasaLogin(email,password);
-    const devices=await kasaGetDevices(token);
-    if(!devices.length) throw new Error('No devices on this Kasa account');
-    // Prefer a power strip (HS300 / KP303 / EP40); else first online device.
-    const strip = devices.find(d=>/HS300|KP303|EP40|strip/i.test((d.deviceModel||'')+' '+(d.alias||'')))
-               || devices.find(d=>d.status===1) || devices[0];
-    kasaAuth={token, appServerUrl:strip.appServerUrl, deviceId:strip.deviceId, deviceAlias:strip.alias||'Kasa device'};
+    kasaAuth={token};
     localStorage.setItem('kasa_auth', JSON.stringify(kasaAuth));
-    toast('✅ Connected to '+kasaAuth.deviceAlias);
+    const devices=await kasaGetDevices(token);
+    // Keep all plug/switch/strip devices (not bulbs, cameras, etc.).
+    let plugs = devices.filter(d=>/SMARTPLUGSWITCH|SMARTSTRIP/i.test(d.deviceType||'') || /HS1|HS3|KP|EP|strip/i.test((d.deviceModel||'')+' '+(d.alias||'')));
+    if(!plugs.length) plugs = devices;
+    kasaDevices = plugs.map(d=>({deviceId:d.deviceId, appServerUrl:d.appServerUrl, alias:d.alias||'Kasa device', model:d.deviceModel||''}));
+    localStorage.setItem('kasa_devices', JSON.stringify(kasaDevices));
+    toast('✅ Connected — '+kasaDevices.length+' device'+(kasaDevices.length===1?'':'s'));
     await refreshKasa();
   }catch(e){
     if(st) st.textContent='❌ '+e.message;
@@ -2459,75 +2461,94 @@ async function doKasaLogin(){
 }
 
 function kasaLogout(){
-  kasaAuth=null; kasaChildren=[]; kasaStates={}; kasaSysDeviceId='';
-  localStorage.removeItem('kasa_auth');
+  kasaAuth=null; kasaDevices=[]; kasaOutlets=[]; kasaStates={};
+  localStorage.removeItem('kasa_auth'); localStorage.removeItem('kasa_devices');
   renderKasaLogin('Disconnected');
 }
 
 async function refreshKasa(){
   if(!kasaAuth){ renderKasaLogin(); return; }
+  if(!kasaDevices.length){ kasaDevices = JSON.parse(localStorage.getItem('kasa_devices')||'[]'); }
   const st=document.getElementById('kasa-status-text');
   const warn=document.getElementById('kasa-warning');
-  if(st) st.textContent='🔄 Connecting to '+kasaAuth.deviceAlias+'...';
+  if(st) st.textContent='🔄 Loading your plugs...';
   if(warn) warn.style.display='none';
-  try{
-    const info=await kasaPassthrough({system:{get_sysinfo:{}}});
-    const sys=info.system.get_sysinfo;
-    kasaSysDeviceId=sys.deviceId||kasaAuth.deviceId;
-    kasaChildren = (sys.children&&sys.children.length) ? sys.children : [{id:'', alias:sys.alias, state:sys.relay_state}];
-    kasaStates={};
-    kasaChildren.forEach((c,i)=>{ kasaStates[i]=c.state===1; });
-    localStorage.setItem('kasa_states', JSON.stringify(kasaStates));
-    if(st) st.textContent='✅ '+kasaAuth.deviceAlias+' — '+new Date().toLocaleTimeString();
-    renderKasaPlugs();
-  }catch(e){
-    if(!kasaAuth) return; // logged out by the session-expiry handler
-    if(st) st.textContent='❌ '+e.message;
-    if(warn) warn.style.display='block';
-    renderKasaPlugs();
+  kasaOutlets=[];
+  let ok=0, fail=0;
+  for(const dev of kasaDevices){
+    try{
+      const info=await kasaPassthrough(dev, {system:{get_sysinfo:{}}});
+      const sys=info.system.get_sysinfo;
+      const sysDevId = sys.deviceId||dev.deviceId;
+      if(sys.children && sys.children.length){
+        sys.children.forEach(c=>{
+          const childId = (c.id && c.id.length<=2) ? (sysDevId+c.id) : (c.id||'');
+          kasaOutlets.push({deviceId:dev.deviceId, appServerUrl:dev.appServerUrl, deviceAlias:dev.alias, childId, alias:c.alias||dev.alias, on:c.state===1});
+        });
+      } else {
+        kasaOutlets.push({deviceId:dev.deviceId, appServerUrl:dev.appServerUrl, deviceAlias:dev.alias, childId:'', alias:sys.alias||dev.alias, on:sys.relay_state===1});
+      }
+      ok++;
+    }catch(e){ fail++; if(!kasaAuth) return; }
   }
+  kasaStates={}; kasaOutlets.forEach((o,i)=>{ kasaStates[i]=o.on; });
+  localStorage.setItem('kasa_states', JSON.stringify(kasaStates));
+  if(st){
+    if(ok) st.textContent='✅ '+kasaOutlets.length+' outlet'+(kasaOutlets.length===1?'':'s')+' across '+ok+' device'+(ok===1?'':'s')+' — '+new Date().toLocaleTimeString()+(fail?(' · '+fail+' offline'):'');
+    else st.textContent='❌ Could not reach your devices';
+  }
+  if(warn && !ok) warn.style.display='block';
+  renderKasaPlugs();
+}
+
+function kasaCard(o, i){
+  const name=o.alias||('Outlet '+(i+1));
+  const on=o.on===true;
+  const crit=kasaIsCritical(name);
+  const dot=on?'var(--teal)':'var(--muted)';
+  return '<div class="filter-card" style="'+(on?'border-color:var(--teal)':'')+';transition:all 0.3s">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'
+    +'<span style="font-size:1.4rem">'+kasaIconFor(name)+'</span>'
+    +'<span style="width:10px;height:10px;border-radius:50%;background:'+dot+';display:inline-block;'+(on?'box-shadow:0 0 8px '+dot:'')+'"></span>'
+    +'</div>'
+    +'<div class="filter-name">'+name+(crit?' <span title="Critical equipment">⚠️</span>':'')+'</div>'
+    +'<div style="font-size:0.75rem;color:'+(on?'var(--teal)':'var(--muted)')+';font-weight:700;margin-bottom:12px">'+(on?'ON':'OFF')+'</div>'
+    +'<div style="display:flex;gap:6px">'
+    +'<button class="btn btn-sm '+(on?'btn-teal':'btn-ghost')+'" onclick="toggleKasa('+i+',true)" style="flex:1">ON</button>'
+    +'<button class="btn btn-sm '+(!on?'btn-danger':'btn-ghost')+'" onclick="toggleKasa('+i+',false)" style="flex:1">OFF</button>'
+    +'</div>'
+    +(crit?'<div style="font-size:0.66rem;color:var(--amber);margin-top:6px;text-align:center">Confirms before switching</div>':'')
+    +'</div>';
 }
 
 function renderKasaPlugs(){
   const grid=document.getElementById('kasa-plugs'); if(!grid) return;
   if(!kasaAuth){ renderKasaLogin(); return; }
-  if(!kasaChildren.length){ grid.innerHTML='<div class="empty" style="grid-column:1/-1">No outlets found. Tap ↻ Refresh.</div>'; return; }
-  grid.innerHTML = kasaChildren.map((c,i)=>{
-    const name=c.alias||('Outlet '+(i+1));
-    const on=kasaStates[i]===true;
-    const crit=kasaIsCritical(name);
-    const dot=on?'var(--teal)':'var(--muted)';
-    return '<div class="filter-card" style="'+(on?'border-color:var(--teal)':'')+';transition:all 0.3s">'
-      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'
-      +'<span style="font-size:1.4rem">'+kasaIconFor(name)+'</span>'
-      +'<span style="width:10px;height:10px;border-radius:50%;background:'+dot+';display:inline-block;'+(on?'box-shadow:0 0 8px '+dot:'')+'"></span>'
-      +'</div>'
-      +'<div class="filter-name">'+name+(crit?' <span title="Critical equipment">⚠️</span>':'')+'</div>'
-      +'<div style="font-size:0.75rem;color:'+(on?'var(--teal)':'var(--muted)')+';font-weight:700;margin-bottom:12px">'+(on?'ON':'OFF')+'</div>'
-      +'<div style="display:flex;gap:6px">'
-      +'<button class="btn btn-sm '+(on?'btn-teal':'btn-ghost')+'" onclick="toggleKasa('+i+',true)" style="flex:1">ON</button>'
-      +'<button class="btn btn-sm '+(!on?'btn-danger':'btn-ghost')+'" onclick="toggleKasa('+i+',false)" style="flex:1">OFF</button>'
-      +'</div>'
-      +(crit?'<div style="font-size:0.66rem;color:var(--amber);margin-top:6px;text-align:center">Confirms before switching</div>':'')
-      +'</div>';
-  }).join('') + '<div style="grid-column:1/-1;margin-top:6px"><button class="btn btn-sm btn-ghost" onclick="kasaLogout()">Disconnect account</button></div>';
+  if(!kasaOutlets.length){ grid.innerHTML='<div class="empty" style="grid-column:1/-1">No outlets found. Tap ↻ Refresh.</div>'; return; }
+  // Group outlets by device so multiple strips/plugs are clearly separated.
+  const order=[]; const groups={};
+  kasaOutlets.forEach((o,i)=>{ if(!groups[o.deviceAlias]){ groups[o.deviceAlias]=[]; order.push(o.deviceAlias); } groups[o.deviceAlias].push(i); });
+  const multi = order.length>1;
+  let html='';
+  order.forEach(dev=>{
+    if(multi) html+='<div style="grid-column:1/-1;font-family:var(--font-head);font-weight:700;color:var(--muted2);margin:10px 0 2px">🔌 '+dev+'</div>';
+    groups[dev].forEach(i=>{ html+=kasaCard(kasaOutlets[i], i); });
+  });
+  grid.innerHTML = html + '<div style="grid-column:1/-1;margin-top:10px"><button class="btn btn-sm btn-ghost" onclick="kasaLogout()">Disconnect account</button></div>';
 }
 
 async function toggleKasa(i, turnOn){
-  const child=kasaChildren[i]; if(!child) return;
-  const name=child.alias||('Outlet '+(i+1));
+  const o=kasaOutlets[i]; if(!o) return;
+  const name=o.alias||('Outlet '+(i+1));
   if(kasaIsCritical(name)){
     if(!confirm('⚠️ "'+name+'" is critical equipment.\n\nReally turn it '+(turnOn?'ON':'OFF')+'?')) return;
   }
-  // A child id is either a 2-digit outlet index (prefix with the device id)
-  // or the already-full child id (use as-is).
-  const cid = child.id ? (child.id.length<=2 ? (kasaSysDeviceId+child.id) : child.id) : null;
-  const req = cid ? {context:{child_ids:[cid]}, system:{set_relay_state:{state:turnOn?1:0}}}
-                  : {system:{set_relay_state:{state:turnOn?1:0}}};
+  const req = o.childId ? {context:{child_ids:[o.childId]}, system:{set_relay_state:{state:turnOn?1:0}}}
+                        : {system:{set_relay_state:{state:turnOn?1:0}}};
   const st=document.getElementById('kasa-status-text');
   if(st) st.textContent='🔄 Switching '+name+'...';
   try{
-    await kasaPassthrough(req);
+    await kasaPassthrough({deviceId:o.deviceId, appServerUrl:o.appServerUrl}, req);
     toast((turnOn?'🟢':'⚪')+' '+name+' turned '+(turnOn?'ON':'OFF'));
     await refreshKasa();
   }catch(e){
