@@ -411,8 +411,8 @@ tr:last-child td{border-bottom:none}
         <span id="kasa-status-text">Connecting to HS300...</span>
       </div>
       <div id="kasa-warning" style="display:none" class="alert-banner" style="background:rgba(255,170,0,0.08);border-color:rgba(255,170,0,0.3)">
-        <div style="color:var(--amber);font-weight:700;font-size:0.85rem">⚠️ Only works on home WiFi</div>
-        <div style="font-size:0.8rem;color:var(--muted2);margin-top:4px">Connect to D-House WiFi to control your plugs</div>
+        <div style="color:var(--amber);font-weight:700;font-size:0.85rem">⚠️ Couldn't reach your plugs</div>
+        <div style="font-size:0.8rem;color:var(--muted2);margin-top:4px">Check your internet connection and that the plugs are online in the Kasa app, then tap ↻ Refresh.</div>
       </div>
       <div class="filter-grid" id="kasa-plugs"></div>
     </div>
@@ -2409,6 +2409,12 @@ async function kasaGetDevices(token){
   if(res.error_code!==0) throw new Error(res.msg||'Could not list devices');
   return (res.result&&res.result.deviceList)||[];
 }
+// Keep all plug/switch/strip devices (not bulbs, cameras, etc.).
+function kasaFilterDevices(devices){
+  let plugs = devices.filter(d=>/SMARTPLUGSWITCH|SMARTSTRIP/i.test(d.deviceType||'') || /HS1|HS3|KP|EP|strip/i.test((d.deviceModel||'')+' '+(d.alias||'')));
+  if(!plugs.length) plugs = devices;
+  return plugs.map(d=>({deviceId:d.deviceId, appServerUrl:d.appServerUrl, alias:d.alias||'Kasa device', model:d.deviceModel||''}));
+}
 // Passthrough to a specific device.
 async function kasaPassthrough(device, requestData){
   if(!kasaAuth) throw new Error('Not connected');
@@ -2446,11 +2452,7 @@ async function doKasaLogin(){
     const token=await kasaLogin(email,password);
     kasaAuth={token};
     localStorage.setItem('kasa_auth', JSON.stringify(kasaAuth));
-    const devices=await kasaGetDevices(token);
-    // Keep all plug/switch/strip devices (not bulbs, cameras, etc.).
-    let plugs = devices.filter(d=>/SMARTPLUGSWITCH|SMARTSTRIP/i.test(d.deviceType||'') || /HS1|HS3|KP|EP|strip/i.test((d.deviceModel||'')+' '+(d.alias||'')));
-    if(!plugs.length) plugs = devices;
-    kasaDevices = plugs.map(d=>({deviceId:d.deviceId, appServerUrl:d.appServerUrl, alias:d.alias||'Kasa device', model:d.deviceModel||''}));
+    kasaDevices = kasaFilterDevices(await kasaGetDevices(token));
     localStorage.setItem('kasa_devices', JSON.stringify(kasaDevices));
     toast('✅ Connected — '+kasaDevices.length+' device'+(kasaDevices.length===1?'':'s'));
     await refreshKasa();
@@ -2468,11 +2470,22 @@ function kasaLogout(){
 
 async function refreshKasa(){
   if(!kasaAuth){ renderKasaLogin(); return; }
-  if(!kasaDevices.length){ kasaDevices = JSON.parse(localStorage.getItem('kasa_devices')||'[]'); }
   const st=document.getElementById('kasa-status-text');
   const warn=document.getElementById('kasa-warning');
   if(st) st.textContent='🔄 Loading your plugs...';
   if(warn) warn.style.display='none';
+  if(!kasaDevices.length){ kasaDevices = JSON.parse(localStorage.getItem('kasa_devices')||'[]'); }
+  if(!kasaDevices.length && kasaAuth.token){
+    // Older sessions saved only a token (no device list) — fetch it now so
+    // the account heals itself without a re-login.
+    try{
+      kasaDevices = kasaFilterDevices(await kasaGetDevices(kasaAuth.token));
+      localStorage.setItem('kasa_devices', JSON.stringify(kasaDevices));
+    }catch(e){
+      if(st) st.textContent='❌ '+e.message;
+      kasaLogout(); return;
+    }
+  }
   kasaOutlets=[];
   let ok=0, fail=0;
   for(const dev of kasaDevices){
