@@ -84,6 +84,15 @@ export default {
 
     return json({ status: 'ok' }, 200);
   },
+
+  // Cron watchdog (see triggers.crons in wrangler.jsonc). Runs on Cloudflare's
+  // schedule — no phone or browser needed — and forces any outlet whose Kasa
+  // name matches KASA_KEEPOFF (default "skimmer") OFF whenever it is ON. This
+  // catches equipment that would otherwise restart after a power outage.
+  // Requires the KASA_EMAIL and KASA_PASSWORD secrets to be set on the Worker.
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(kasaKeepOff(env));
+  },
 };
 
 function json(obj, status) {
@@ -91,4 +100,69 @@ function json(obj, status) {
     status,
     headers: { ...CORS, 'Content-Type': 'application/json' },
   });
+}
+
+// POST a JSON payload to the TP-Link cloud and return the parsed response.
+async function tplink(url, payload) {
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return r.json();
+}
+
+async function kasaKeepOff(env) {
+  if (!env.KASA_EMAIL || !env.KASA_PASSWORD) return; // not configured yet
+  const keep = String(env.KASA_KEEPOFF || 'skimmer')
+    .toLowerCase().split(',').map((s) => s.trim()).filter(Boolean);
+
+  // 1) Log in for a fresh token (re-login every run so token expiry is a non-issue).
+  const login = await tplink('https://wap.tplinkcloud.com', {
+    method: 'login',
+    params: {
+      appType: 'Kasa_Android',
+      cloudUserName: env.KASA_EMAIL,
+      cloudPassword: env.KASA_PASSWORD,
+      terminalUUID: 'reeftrack-cron-watchdog',
+    },
+  });
+  if (login.error_code !== 0 || !login.result || !login.result.token) return;
+  const token = login.result.token;
+
+  // 2) List devices.
+  const list = await tplink('https://wap.tplinkcloud.com/?token=' + encodeURIComponent(token), {
+    method: 'getDeviceList',
+  });
+  if (list.error_code !== 0 || !list.result) return;
+
+  // 3) For each online device, read outlets and force matching ones OFF.
+  for (const d of (list.result.deviceList || [])) {
+    if (d.status !== 1) continue;
+    const base = d.appServerUrl + '/?token=' + encodeURIComponent(token);
+    const info = await tplink(base, {
+      method: 'passthrough',
+      params: { deviceId: d.deviceId, requestData: JSON.stringify({ system: { get_sysinfo: {} } }) },
+    });
+    if (info.error_code !== 0 || !info.result) continue;
+    let sys;
+    try { sys = JSON.parse(info.result.responseData).system.get_sysinfo; } catch (e) { continue; }
+    const sysDevId = sys.deviceId || d.deviceId;
+    const children = (sys.children && sys.children.length)
+      ? sys.children
+      : [{ id: '', alias: sys.alias, state: sys.relay_state }];
+    for (const c of children) {
+      const alias = String(c.alias || '').toLowerCase();
+      if (c.state === 1 && keep.some((k) => alias.includes(k))) {
+        const childId = c.id ? (c.id.length <= 2 ? sysDevId + c.id : c.id) : '';
+        const req = childId
+          ? { context: { child_ids: [childId] }, system: { set_relay_state: { state: 0 } } }
+          : { system: { set_relay_state: { state: 0 } } };
+        await tplink(base, {
+          method: 'passthrough',
+          params: { deviceId: d.deviceId, requestData: JSON.stringify(req) },
+        });
+      }
+    }
+  }
 }
