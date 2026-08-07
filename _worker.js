@@ -82,14 +82,6 @@ export default {
       }
     }
 
-    // Read-only diagnostic: run the watchdog in dry-run mode using the stored
-    // secrets, so login / device detection can be verified without switching
-    // anything. Safe to call; never toggles an outlet.
-    if (url.pathname === '/kasa-test') {
-      const report = await kasaKeepOff(env, { dryRun: true });
-      return json(report, 200);
-    }
-
     return json({ status: 'ok' }, 200);
   },
 
