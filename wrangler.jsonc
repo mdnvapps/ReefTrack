@@ -4,5 +4,8 @@
   // GitHub Pages, so this Worker only needs to run _worker.js for /claude.
   "name": "reeftrack-kasa",
   "main": "_worker.js",
-  "compatibility_date": "2024-11-01"
+  "compatibility_date": "2024-11-01",
+  // Cron watchdog: run every minute to keep configured outlets (e.g. skimmer)
+  // OFF after a power outage. Needs KASA_EMAIL / KASA_PASSWORD secrets set.
+  "triggers": { "crons": ["* * * * *"] }
 }
