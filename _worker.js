@@ -82,6 +82,14 @@ export default {
       }
     }
 
+    // Read-only diagnostic: run the watchdog in dry-run mode using the stored
+    // secrets, so login / device detection can be verified without switching
+    // anything. Safe to call; never toggles an outlet.
+    if (url.pathname === '/kasa-test') {
+      const report = await kasaKeepOff(env, { dryRun: true });
+      return json(report, 200);
+    }
+
     return json({ status: 'ok' }, 200);
   },
 
@@ -112,10 +120,16 @@ async function tplink(url, payload) {
   return r.json();
 }
 
-async function kasaKeepOff(env) {
-  if (!env.KASA_EMAIL || !env.KASA_PASSWORD) return; // not configured yet
+// Runs the watchdog. Returns a diagnostic report. When opts.dryRun is true it
+// reports what it sees but never switches anything (used by /kasa-test).
+async function kasaKeepOff(env, opts) {
+  const dryRun = !!(opts && opts.dryRun);
+  const report = { configured: false, login: false, deviceCount: 0, devices: [], guarded: [], turnedOff: [] };
+  if (!env.KASA_EMAIL || !env.KASA_PASSWORD) { report.error = 'KASA_EMAIL / KASA_PASSWORD not set'; return report; }
+  report.configured = true;
   const keep = String(env.KASA_KEEPOFF || 'skimmer')
     .toLowerCase().split(',').map((s) => s.trim()).filter(Boolean);
+  report.keepMatches = keep;
 
   // 1) Log in for a fresh token (re-login every run so token expiry is a non-issue).
   const login = await tplink('https://wap.tplinkcloud.com', {
@@ -127,17 +141,24 @@ async function kasaKeepOff(env) {
       terminalUUID: 'reeftrack-cron-watchdog',
     },
   });
-  if (login.error_code !== 0 || !login.result || !login.result.token) return;
+  if (login.error_code !== 0 || !login.result || !login.result.token) {
+    report.error = 'login failed: ' + (login.msg || ('error_code ' + login.error_code));
+    return report;
+  }
+  report.login = true;
   const token = login.result.token;
 
   // 2) List devices.
   const list = await tplink('https://wap.tplinkcloud.com/?token=' + encodeURIComponent(token), {
     method: 'getDeviceList',
   });
-  if (list.error_code !== 0 || !list.result) return;
+  if (list.error_code !== 0 || !list.result) { report.error = 'getDeviceList failed'; return report; }
+  const devs = list.result.deviceList || [];
+  report.deviceCount = devs.length;
 
-  // 3) For each online device, read outlets and force matching ones OFF.
-  for (const d of (list.result.deviceList || [])) {
+  // 3) For each online device, read outlets; force matching ones OFF (unless dry-run).
+  for (const d of devs) {
+    report.devices.push({ alias: d.alias, model: d.deviceModel, online: d.status === 1 });
     if (d.status !== 1) continue;
     const base = d.appServerUrl + '/?token=' + encodeURIComponent(token);
     const info = await tplink(base, {
@@ -153,16 +174,20 @@ async function kasaKeepOff(env) {
       : [{ id: '', alias: sys.alias, state: sys.relay_state }];
     for (const c of children) {
       const alias = String(c.alias || '').toLowerCase();
-      if (c.state === 1 && keep.some((k) => alias.includes(k))) {
-        const childId = c.id ? (c.id.length <= 2 ? sysDevId + c.id : c.id) : '';
-        const req = childId
-          ? { context: { child_ids: [childId] }, system: { set_relay_state: { state: 0 } } }
-          : { system: { set_relay_state: { state: 0 } } };
-        await tplink(base, {
-          method: 'passthrough',
-          params: { deviceId: d.deviceId, requestData: JSON.stringify(req) },
-        });
-      }
+      if (!keep.some((k) => alias.includes(k))) continue;
+      report.guarded.push({ alias: c.alias, on: c.state === 1 });
+      if (c.state !== 1) continue;
+      if (dryRun) { report.turnedOff.push(c.alias + ' (dry-run: would switch off)'); continue; }
+      const childId = c.id ? (c.id.length <= 2 ? sysDevId + c.id : c.id) : '';
+      const req = childId
+        ? { context: { child_ids: [childId] }, system: { set_relay_state: { state: 0 } } }
+        : { system: { set_relay_state: { state: 0 } } };
+      await tplink(base, {
+        method: 'passthrough',
+        params: { deviceId: d.deviceId, requestData: JSON.stringify(req) },
+      });
+      report.turnedOff.push(c.alias);
     }
   }
+  return report;
 }
