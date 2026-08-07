@@ -2370,6 +2370,12 @@ let kasaAuth = JSON.parse(localStorage.getItem('kasa_auth')||'null');       // {
 let kasaDevices = JSON.parse(localStorage.getItem('kasa_devices')||'[]');   // [{deviceId, appServerUrl, alias, model}]
 let kasaOutlets = [];   // flat [{deviceId, appServerUrl, deviceAlias, childId, alias, on}]
 let kasaStates = {};    // kept for the dashboard mini-status
+// Auto-off watchdog: outlet keys (childId, or deviceId for single plugs) that
+// must be forced OFF whenever they are seen ON — e.g. a skimmer that would
+// otherwise restart after a power outage and run dry.
+let kasaAutoOff = new Set(JSON.parse(localStorage.getItem('kasa_autooff')||'[]'));
+let kasaWatchTimer = null;
+function kasaKey(o){ return o.childId || o.deviceId; }
 
 function kasaIconFor(name){
   const n=(name||'').toLowerCase();
@@ -2518,8 +2524,9 @@ function kasaCard(o, i){
   const name=o.alias||('Outlet '+(i+1));
   const on=o.on===true;
   const crit=kasaIsCritical(name);
+  const armed=kasaAutoOff.has(kasaKey(o));
   const dot=on?'var(--teal)':'var(--muted)';
-  return '<div class="filter-card" style="'+(on?'border-color:var(--teal)':'')+';transition:all 0.3s">'
+  return '<div class="filter-card" style="'+(armed?'border-color:var(--cyan)':(on?'border-color:var(--teal)':''))+';transition:all 0.3s">'
     +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'
     +'<span style="font-size:1.4rem">'+kasaIconFor(name)+'</span>'
     +'<span style="width:10px;height:10px;border-radius:50%;background:'+dot+';display:inline-block;'+(on?'box-shadow:0 0 8px '+dot:'')+'"></span>'
@@ -2530,7 +2537,9 @@ function kasaCard(o, i){
     +'<button class="btn btn-sm '+(on?'btn-teal':'btn-ghost')+'" onclick="toggleKasa('+i+',true)" style="flex:1">ON</button>'
     +'<button class="btn btn-sm '+(!on?'btn-danger':'btn-ghost')+'" onclick="toggleKasa('+i+',false)" style="flex:1">OFF</button>'
     +'</div>'
-    +(crit?'<div style="font-size:0.66rem;color:var(--amber);margin-top:6px;text-align:center">Confirms before switching</div>':'')
+    +'<button class="btn btn-sm '+(armed?'btn-teal':'btn-ghost')+'" style="width:100%;margin-top:6px;font-size:0.68rem" onclick="armAutoOff('+i+')">'+(armed?'🛡️ Disarm auto-off':'🛡️ Keep OFF on power')+'</button>'
+    +(armed?'<div style="font-size:0.64rem;color:var(--cyan);margin-top:5px;text-align:center;font-weight:700">Watchdog armed — forced OFF</div>'
+           :(crit?'<div style="font-size:0.66rem;color:var(--amber);margin-top:5px;text-align:center">Confirms before switching</div>':''))
     +'</div>';
 }
 
@@ -2543,6 +2552,10 @@ function renderKasaPlugs(){
   kasaOutlets.forEach((o,i)=>{ if(!groups[o.deviceAlias]){ groups[o.deviceAlias]=[]; order.push(o.deviceAlias); } groups[o.deviceAlias].push(i); });
   const multi = order.length>1;
   let html='';
+  if(kasaAutoOff.size){
+    const armedNames=kasaOutlets.filter(o=>kasaAutoOff.has(kasaKey(o))).map(o=>o.alias);
+    html+='<div style="grid-column:1/-1;background:rgba(0,229,255,0.08);border:1px solid rgba(0,229,255,0.3);border-radius:8px;padding:10px 12px;font-size:0.8rem;color:var(--cyan);margin-bottom:8px;line-height:1.5">🛡️ <b>Auto-off watchdog armed</b>'+(armedNames.length?' — '+armedNames.join(', '):'')+'.<br>Keep this app open. These outlets are forced OFF whenever they come back on (e.g. after a power outage).</div>';
+  }
   order.forEach(dev=>{
     if(multi) html+='<div style="grid-column:1/-1;font-family:var(--font-head);font-weight:700;color:var(--muted2);margin:10px 0 2px">🔌 '+dev+'</div>';
     groups[dev].forEach(i=>{ html+=kasaCard(kasaOutlets[i], i); });
@@ -2553,6 +2566,10 @@ function renderKasaPlugs(){
 async function toggleKasa(i, turnOn){
   const o=kasaOutlets[i]; if(!o) return;
   const name=o.alias||('Outlet '+(i+1));
+  if(turnOn && kasaAutoOff.has(kasaKey(o))){
+    toast('🛡️ Auto-off is armed for '+name+' — disarm it first to keep it ON');
+    return;
+  }
   if(kasaIsCritical(name)){
     if(!confirm('⚠️ "'+name+'" is critical equipment.\n\nReally turn it '+(turnOn?'ON':'OFF')+'?')) return;
   }
@@ -2567,6 +2584,74 @@ async function toggleKasa(i, turnOn){
   }catch(e){
     toast('Kasa command failed: '+e.message,'error');
     if(st) st.textContent='❌ '+e.message;
+  }
+}
+
+function kasaNotify(msg){
+  try{ if('Notification' in window && Notification.permission==='granted') new Notification('ReefTrack', {body:msg, icon:'apple-touch-icon.png'}); }catch(e){}
+}
+
+// Arm/disarm the auto-off watchdog for an outlet.
+function armAutoOff(i){
+  const o=kasaOutlets[i]; if(!o) return;
+  const key=kasaKey(o);
+  if(kasaAutoOff.has(key)){
+    kasaAutoOff.delete(key);
+    toast('🛡️ Auto-off disarmed for '+o.alias);
+  }else{
+    kasaAutoOff.add(key);
+    toast('🛡️ Auto-off armed — '+o.alias+' will be kept OFF');
+    if('Notification' in window && Notification.permission==='default'){ try{ Notification.requestPermission(); }catch(e){} }
+  }
+  localStorage.setItem('kasa_autooff', JSON.stringify([...kasaAutoOff]));
+  ensureKasaWatch();      // starts an immediate tick, which switches it off now if reachable
+  renderKasaPlugs();
+}
+
+// Start/stop the polling watchdog based on whether anything is armed.
+function ensureKasaWatch(){
+  if(kasaAutoOff.size && kasaAuth){
+    if(!kasaWatchTimer){ kasaWatchTimer=setInterval(kasaWatchTick, 8000); kasaWatchTick(); }
+  }else if(kasaWatchTimer){
+    clearInterval(kasaWatchTimer); kasaWatchTimer=null;
+  }
+}
+
+// One poll: for every device, read outlets; force OFF any armed outlet found ON.
+// Offline devices (e.g. during an outage) simply fail this tick and retry next.
+async function kasaWatchTick(){
+  if(!kasaAuth || !kasaAutoOff.size) return;
+  if(!kasaDevices.length){
+    try{ kasaDevices=kasaFilterDevices(await kasaGetDevices(kasaAuth.token)); localStorage.setItem('kasa_devices',JSON.stringify(kasaDevices)); }
+    catch(e){ return; }
+  }
+  const fresh=[];
+  for(const dev of kasaDevices){
+    let sys;
+    try{ const info=await kasaPassthrough(dev,{system:{get_sysinfo:{}}}); sys=info.system.get_sysinfo; }
+    catch(e){ if(!kasaAuth) return; continue; }   // offline/unreachable — retry next tick
+    const sysDevId=sys.deviceId||dev.deviceId;
+    const outs=(sys.children&&sys.children.length)
+      ? sys.children.map(c=>({deviceId:dev.deviceId, appServerUrl:dev.appServerUrl, deviceAlias:dev.alias, childId:(c.id&&c.id.length<=2)?(sysDevId+c.id):(c.id||''), alias:c.alias||dev.alias, on:c.state===1}))
+      : [{deviceId:dev.deviceId, appServerUrl:dev.appServerUrl, deviceAlias:dev.alias, childId:'', alias:sys.alias||dev.alias, on:sys.relay_state===1}];
+    for(const o of outs){
+      if(kasaAutoOff.has(kasaKey(o)) && o.on){
+        try{
+          const req=o.childId ? {context:{child_ids:[o.childId]}, system:{set_relay_state:{state:0}}}
+                              : {system:{set_relay_state:{state:0}}};
+          await kasaPassthrough({deviceId:o.deviceId, appServerUrl:o.appServerUrl}, req);
+          o.on=false;
+          kasaNotify('🛡️ '+o.alias+' came back on — auto-shut OFF (power-loss safeguard)');
+          toast('🛡️ '+o.alias+' was ON — auto-shut off');
+        }catch(e){}
+      }
+    }
+    fresh.push(...outs);
+  }
+  if(fresh.length){
+    kasaOutlets=fresh;
+    kasaStates={}; kasaOutlets.forEach((o,i)=>{ kasaStates[i]=o.on; });
+    if(document.getElementById('panel-kasa') && document.getElementById('panel-kasa').classList.contains('active')) renderKasaPlugs();
   }
 }
 
@@ -2726,6 +2811,7 @@ async function init(){
   initTankSwitcher();
   renderSettings();
   kasaStates = JSON.parse(localStorage.getItem('kasa_states')||'{}');
+  ensureKasaWatch();   // resume the auto-off watchdog if any outlet is armed
   // Request notification permission after 2 seconds
   setTimeout(()=>{
     if('Notification' in window && Notification.permission === 'default'){
